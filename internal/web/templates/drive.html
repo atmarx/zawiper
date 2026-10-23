@@ -1,0 +1,22 @@
+{{define "content"}}
+{{with .Sum}}
+<p class="crumbs"><a href="/drives">Drives</a> /</p>
+<h1 class="serial-big">{{template "serial" .Serial}}</h1>
+<p class="lede">{{.Model}}{{with .Family}} · {{.}}{{end}} · {{size .Capacity}}</p>
+<dl class="facts">
+  <dt>First seen</dt><dd>{{when .FirstSeen}}</dd>
+  <dt>Last seen</dt><dd>{{when .LastSeen}}</dd>
+  <dt>Last</dt><dd>{{.LastKind}} {{template "badge" .LastGrade}}</dd>
+</dl>
+{{end}}
+<h2>Records</h2>
+<ul class="records">
+{{range .Records}}
+  <li>
+    <a href="/drives/{{$.Dir}}/{{.ID}}">{{when .Finished}}</a>
+    · {{.Kind}} {{template "badge" .Health.Grade}}
+    {{if .Refusals}}<span class="muted">· {{len .Refusals}} refusal{{if gt (len .Refusals) 1}}s{{end}}</span>{{end}}
+  </li>
+{{end}}
+</ul>
+{{end}}

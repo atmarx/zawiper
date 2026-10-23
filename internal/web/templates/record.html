@@ -1,0 +1,78 @@
+{{define "content"}}
+{{with .R}}
+<p class="crumbs noprint"><a href="/drives">Drives</a> / <a href="/drives/{{$.Dir}}">{{.Serial}}</a> /</p>
+<div class="actions noprint">
+  <button type="button" class="btn" data-print>Print or save PDF</button>
+  <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.md?download">record.md</a>
+  <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.json?download">record.json</a>
+  <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/smart.txt">smart.txt</a>
+</div>
+
+<article class="record">
+  <header class="record-head">
+    <div class="record-brand">ZA WIPER · DRIVE RECORD</div>
+    <h1 class="serial-big">{{template "serial" .Serial}}</h1>
+    <p class="lede">{{if .Drive.SMART}}{{.Drive.SMART.Model}}{{end}} · {{size .Drive.Size}} · {{if eq .Kind "inspect"}}Inspected, read only{{else}}{{.Kind}}{{end}}</p>
+  </header>
+
+  <section>
+    <h2>Health {{template "badge" .Health.Grade}}</h2>
+    {{with .Drive.SMART}}
+    <p>The drive's own verdict: {{if .Passed}}{{if deref .Passed}}PASSED{{else}}FAILING{{end}}{{else}}didn't say{{end}}.  Power-on {{commas .PowerOnHours}} hours, {{commas .PowerCycles}} power cycles, {{.TempC}} °C.</p>
+    {{end}}
+    {{with .Health.Notes}}<ul class="notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  </section>
+
+  <section>
+    <h2>Drive</h2>
+    <dl class="facts">
+      {{with .Drive.SMART}}
+      <dt>Serial</dt><dd class="mono">{{.Serial}}</dd>
+      <dt>Model</dt><dd>{{.Model}}</dd>
+      {{with .Family}}<dt>Family</dt><dd>{{.}}</dd>{{end}}
+      {{with .WWN}}<dt>WWN</dt><dd class="mono">{{.}}</dd>{{end}}
+      {{with .Firmware}}<dt>Firmware</dt><dd>{{.}}</dd>{{end}}
+      <dt>Type</dt><dd>{{rotation .RotationRate}}</dd>
+      {{end}}
+      <dt>Capacity</dt><dd>{{size .Drive.Size}} <span class="muted mono">({{.Drive.Size}} bytes)</span></dd>
+      <dt>Sectors</dt><dd>{{.Drive.LogicalSector}} logical / {{.Drive.PhysicalSector}} physical bytes</dd>
+      <dt>Bridge</dt><dd>{{bridge .Drive.Bridge}}</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Found on it</h2>
+    {{template "found" .Drive}}
+  </section>
+
+  {{with .Refusals}}
+  <section>
+    <h2>Refused</h2>
+    <ul>{{range .}}<li>{{.}}</li>{{end}}</ul>
+  </section>
+  {{end}}
+
+  {{with .Drive.SMART}}
+  <section class="smart">
+    <h2>SMART attributes</h2>
+    {{template "smarttable" .}}
+  </section>
+  {{end}}
+
+  <section>
+    <h2>This record</h2>
+    <dl class="facts">
+      <dt>Record</dt><dd class="mono">{{.ID}}</dd>
+      <dt>Inserted</dt><dd>{{when .Started}}</dd>
+      <dt>Read</dt><dd>{{when .Finished}}</dd>
+      <dt>Bay</dt><dd>{{.Bay}} on {{.Host}}</dd>
+      <dt>Software</dt><dd>{{.Software}}</dd>
+    </dl>
+  </section>
+
+  <footer class="record-foot">
+    {{if not .Wrote}}Nothing was written to this drive.  {{end}}This record states what Za Wiper observed on the date shown, and nothing more.
+  </footer>
+</article>
+{{end}}
+{{end}}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Za Wiper bay daemon (reads the drive in the bay; Phase 1 writes nothing)
+Documentation=https://git.example.org/atmarx/the-ark/src/branch/master/docs/za-wiper.md
+After=local-fs.target
+
+[Service]
+# Root: it owns the block device, sets it read-only, and mounts to peek.
+ExecStart=/usr/local/bin/bayd -socket-gid 8460
+Restart=always
+RestartSec=2
+# /run/zawiper holds the socket.  Preserve it across restarts, or zaweb's
+# bind mount would point at a deleted directory.
+RuntimeDirectory=zawiper
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

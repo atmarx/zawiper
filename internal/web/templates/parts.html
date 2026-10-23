@@ -1,0 +1,32 @@
+{{define "serial"}}<span class="serial"><span class="serial-head">{{tail .}}</span><span class="serial-tail">{{last6 .}}</span></span>{{end}}
+
+{{define "badge"}}<span class="badge badge-{{grade .}}">{{if eq (grade .) "pass"}}✓{{else if eq (grade .) "notes"}}△{{else if eq (grade .) "fail"}}✕{{end}} {{if .}}{{.}}{{else}}NO GRADE{{end}}</span>{{end}}
+
+{{define "found"}}
+<p class="found-line">{{found .}}</p>
+{{with .Table.Parts}}
+<ul class="parts">
+  {{range .}}
+  <li{{if .Backup}} class="warn"{{end}}>
+    <span class="mono">{{.Path}}</span> {{size .Size}}{{if .FSType}} · {{.FSType}}{{end}}{{if .Label}} <span class="mono">“{{.Label}}”</span>{{end}}{{if ge .Used 0}} · <strong>{{size .Used}} used</strong>{{end}}
+    {{if .Backup}}<div class="why">⚠ Looks like a backup: {{.Backup}}.</div>{{end}}
+    {{if .Peek}}<div class="peek">{{.Peek}}</div>{{end}}
+  </li>
+  {{end}}
+</ul>
+{{end}}
+{{with .Table.Note}}<p class="muted">{{.}}</p>{{end}}
+{{end}}
+
+{{define "smarttable"}}
+<div class="scroll">
+<table class="attrs">
+  <thead><tr><th>ID</th><th>Attribute</th><th>Value</th><th>Worst</th><th>Thresh</th><th>Failed</th><th>Raw</th></tr></thead>
+  <tbody>
+  {{range .Attrs}}
+    <tr{{if .WhenFailed}} class="flag"{{end}}><td class="num">{{.ID}}</td><td>{{.Name}}</td><td class="num">{{.Value}}</td><td class="num">{{.Worst}}</td><td class="num">{{.Thresh}}</td><td>{{.WhenFailed}}</td><td class="mono">{{.RawString}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}

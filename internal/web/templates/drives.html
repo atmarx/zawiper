@@ -1,0 +1,32 @@
+{{define "content"}}
+<h1>Drives</h1>
+<form class="search" method="get" action="/drives" role="search">
+  <label for="q" class="sr">Search by serial or model</label>
+  <input id="q" name="q" type="search" value="{{.Q}}" placeholder="Serial or model" autocomplete="off" autofocus data-filter="#drive-rows">
+  <button class="btn" type="submit">Search</button>
+</form>
+<p class="muted small">{{.Total}} drive{{if ne .Total 1}}s{{end}} on record.</p>
+{{if .Drives}}
+<div class="scroll">
+<table class="list">
+  <thead><tr><th>Serial</th><th>Model</th><th>Size</th><th>Last seen</th><th>Last</th><th>Records</th></tr></thead>
+  <tbody id="drive-rows">
+  {{range .Drives}}
+    <tr data-search="{{.Serial}} {{.Model}} {{.Family}}">
+      <td><a href="/drives/{{dir .Serial}}">{{template "serial" .Serial}}</a></td>
+      <td>{{.Model}}</td>
+      <td class="num">{{size .Capacity}}</td>
+      <td>{{when .LastSeen}}</td>
+      <td>{{.LastKind}} {{template "badge" .LastGrade}}</td>
+      <td class="num">{{.Records}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{else if .Q}}
+<p>Nothing matches “{{.Q}}”.  This drive hasn't been through the bay.</p>
+{{else}}
+<p>No drives yet.  Put one in the bay.</p>
+{{end}}
+{{end}}

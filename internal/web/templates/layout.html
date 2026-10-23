@@ -1,0 +1,23 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · Za Wiper</title>
+<link rel="stylesheet" href="/static/zawiper.css">
+<script src="/static/zawiper.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">ZA WIPER</a>
+  <nav>
+    <a href="/"{{if eq .Nav "bay"}} aria-current="page"{{end}}>Bay</a>
+    <a href="/drives"{{if eq .Nav "drives"}} aria-current="page"{{end}}>Drives</a>
+  </nav>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer class="foot">Za Wiper · aka Za Viper · ssss <span class="muted">· {{.Version}}</span></footer>
+</body>
+</html>{{end}}

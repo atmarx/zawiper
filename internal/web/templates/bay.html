@@ -1,0 +1,82 @@
+{{define "content"}}
+<section id="bay" data-poll="/fragment/bay" aria-live="polite">
+{{template "baycard" .V}}
+</section>
+{{end}}
+
+{{define "baycard"}}
+{{if .Err}}
+<div class="alarm" role="alert"><strong>Can't reach bayd.</strong>  {{.Err}}</div>
+{{end}}
+{{with .Snap}}
+<div class="bayline">
+  <span class="state state-{{lower .State}}"><span class="shape" aria-hidden="true"></span>{{.State}}</span>
+  <span class="muted">{{.Bay}}</span>
+</div>
+
+{{if eq .State "EMPTY"}}
+  <p class="lede">Nothing in the bay.  The viper is hungry.</p>
+  {{with .Message}}<p class="muted">{{.}}</p>{{end}}
+{{else if eq .State "READING"}}
+  <p class="lede">Reading the drive<span class="dots">…</span></p>
+  <p class="muted">{{.Message}}</p>
+{{else}}
+  {{with .Refusals}}
+  <div class="refusals" role="alert">
+    <strong>Za Wiper won't act on this.</strong>
+    <ul>{{range .}}<li>{{.}}</li>{{end}}</ul>
+  </div>
+  {{end}}
+  {{with .Devices}}<ul class="mono">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+
+  {{with .Drive}}
+  <article class="card{{if .LooksLikeBackup}} card-warn{{end}}">
+    <div class="card-head">
+      <div>
+        <h1 class="model">{{if .SMART}}{{.SMART.Model}}{{else}}Unknown drive{{end}}</h1>
+        {{if .SMART}}<div class="muted">{{.SMART.Family}}</div>{{end}}
+      </div>
+      <div class="cap">{{size .Size}}</div>
+    </div>
+    {{if .SMART}}<div class="serial-big">{{template "serial" .SMART.Serial}}</div>{{end}}
+
+    <dl class="facts">
+      {{if .SMART}}
+      <dt>Health</dt><dd>{{template "badge" .Health.Grade}}</dd>
+      <dt>Type</dt><dd>{{rotation .SMART.RotationRate}}</dd>
+      <dt>Power-on</dt><dd>{{commas .SMART.PowerOnHours}} h · {{commas .SMART.PowerCycles}} cycles</dd>
+      <dt>Temp</dt><dd>{{.SMART.TempC}} °C</dd>
+      {{end}}
+      <dt>Bridge</dt><dd>{{bridge .Bridge}}</dd>
+      <dt>Device</dt><dd class="mono">{{.Dev}}{{if .ReadOnly}} · read-only{{end}}</dd>
+    </dl>
+
+    {{with .Health.Notes}}<ul class="notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+
+    <h2>Found on it</h2>
+    {{template "found" .}}
+  </article>
+  {{end}}
+
+  <div class="actions">
+    <button type="button" class="btn" data-reread>Re-read</button>
+    <button type="button" class="btn btn-danger" disabled title="Phase 2">Wipe</button>
+    <button type="button" class="btn btn-danger" disabled title="Phase 3">Wipe + Load</button>
+  </div>
+  <p class="muted small">Wiping arrives in Phase 2.  Nothing on this page can write to a drive yet.</p>
+  {{if and .RecordID .Drive}}<p><a href="/drives/{{dir .Drive.Serial}}/{{.RecordID}}">This read's record →</a></p>{{end}}
+{{end}}
+{{end}}
+
+{{with .Recent}}
+<section class="recent">
+  <h2>Recently in the bay</h2>
+  <ul class="recent-list">
+  {{range .}}
+    <li><a href="/drives/{{dir .Serial}}">{{template "serial" .Serial}}</a> <span class="muted">{{.Model}} · {{size .Capacity}}</span> {{template "badge" .LastGrade}}</li>
+  {{end}}
+  </ul>
+  <p><a href="/drives">All drives →</a></p>
+</section>
+{{end}}
+{{end}}
