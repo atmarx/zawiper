@@ -1,11 +1,12 @@
 # Za Wiper — drive bays that read, wipe, prove, and sometimes fill with an Ark
 
-Spec v0.3, 2026-10-24.  Zim, for The Ark.  Idea and name: xram.
+Spec v0.3.1, 2026-10-24.  Zim, for The Ark.  Idea and name: xram.
 
 v0.1 was written 2026-10-09 in the homelab repo (`docs/specs/za-wiper.md` at `d73b3bc`).  v0.2 moved it home and folded in xram's calls of 2026-10-23 and Val's Phase 0 hardware facts.  v0.3 adds the calls of 2026-10-24:
 - many bays on many hosts behind one hub
 - the wipe record as a certificate for resale
 - one shared view, with no abort
+- one `bayd` per bay, with its scope enforced by the kernel (relayed by Val, with the hub and CA plan)
 
 The first real wipe ran that day.  Where v0.1 had more detail than this, and that detail still holds, this doc says so by section number, e.g. *v0.1 §8.3*.
 
@@ -50,7 +51,8 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 | Stopping a run | **No abort on the page.**  Once a run starts, nobody watching can break it.  We all just get to watch. |
 | The look | The wipe screen is MS-DOS DEFRAG: a grid of blocks being wiped, then verified, then loaded (§6.5). |
 | What it's for | Mostly wiping drives for sale.  The buyer wants a blank drive, a certificate of deletion, and that drive's health.  Wipe + Load is the gift case. |
-| Many bays | `bayd` runs on any number of dock hosts.  One hub (`zaweb` plus the records) talks to all of them.  A drive's history follows its identity, not the dock it was in (§8). |
+| Many bays | One web interface, many bays, like OSDs in Ceph.  Each bay checks in and can take disks.  One hub (`zaweb` plus the records) talks to all of them.  A drive's history follows its identity, not the dock it was in (§8). |
+| Scope | A USB-SATA dock, a USB-SAS adapter, and a port on a SAS card all work the same way.  Each bay's service is scoped to one device, by USB port or hardware ID.  What's in its config is what it can touch, and nothing else. |
 | Load payload | The hub serves staging, and `bayd` pulls it over plain HTTP with range requests.  No tusd, and no NAS mount on dock hosts.  Sending a loadout over the network twice is fine. |
 
 ## 3. Hardware: the facts (Val, Phase 0)
@@ -68,7 +70,9 @@ The visible part is one confirm.  The real guards are the ones that never show u
 
 ### 4.1 Invisible, always on
 
-- **The API can't name a disk.**  No endpoint takes a device path or a major:minor number.  `bayd` finds its bays from its own `/etc/zawiper/bay.toml`, which pins each one to a port path and is written once by a person provisioning the host (*v0.1 §4.1, §5.1*).  The hub can address a bay, never a device.
+- **The API can't name a disk.**  No endpoint takes a device path or a major:minor number.  Each bay's selector lives in `/etc/zawiper/bays/<bay>.toml`, written once by a person provisioning the host (*v0.1 §4.1, §5.1*).  The selector is a USB port path, a SAS by-path (`pci-…-sas-phyN-lun-0`), or an enclosure slot.  The hub can address a bay, never a device.
+- **The kernel enforces the scope, not `bayd`'s code.**  A udev rule matches the selector and creates `/dev/zawiper/<bay>`, plus `/dev/zawiper/<bay>-sg` for SAS tools.  The bay's disk unit runs with `DevicePolicy=closed` and `DeviceAllow=` those nodes only, so even as root the cgroup device filter refuses any other disk (§8).
+- **RAID cards only in HBA/IT mode.**  Behind `megaraid`, SMART and passthrough go through one controller-wide ioctl node that can reach every disk on the card.  That breaks the scope, so the bay refuses it.
 - **A start carries what the confirm showed.**  Wipe and Load name the bay, the drive identity, and the insertion session the confirm was drawn from.  `bayd` refuses if that isn't what it holds right now.  So a stale confirm, a swapped drive, or a hub that's confused all fail closed.
 - **One LUN, sane size.**  `bayd` refuses if the port shows two block devices, if the size doesn't match SMART, or if the size is outside 8 GiB–64 TiB.
 - **Never a host disk.**  `bayd` refuses anything mounted by the host, or anything holding a root, Docker, or LVM/ZFS member that the VM is using.  The VM's own disks are `sd*`/`vd*` too, which is exactly what `ark stamp`'s current guard gets wrong (§9).
@@ -89,7 +93,7 @@ The visible part is one confirm.  The real guards are the ones that never show u
 ### 4.3 The page itself
 
 - **Network:** the Caddy route on hub-host uses the private-ranges guard and the WAF import (Val).
-- **Dock hosts don't listen.**  Each `bayd` dials out to the hub over TLS, with certificates checked on both sides, and keeps that one connection open.  Commands come down it, and status and records go up.  A dock host exposes no port.  The hub is the trust point: owning it means being able to wipe whatever is sitting in a bay.  So it stays small, on a backed-up host.
+- **Dock hosts don't listen.**  Each bay dials out to the hub over TLS, with its own client certificate (CN `bay/<host>/<name>`, like an OSD's keyring), and keeps that one connection open.  Commands come down it, and status and records go up.  A dock host exposes no port.  The hub is the trust point: owning it means being able to wipe whatever is sitting in a bay.  So it stays small, on a backed-up host.
 - **Browser:** each mutating call needs a matching `Host` and `Origin`, `Content-Type: application/json` (which forces a CORS preflight the server refuses), and an `X-Za-Wiper: 1` header.  A malicious page open in a LAN browser can't start a wipe (*v0.1 §4.5*).
 - **One job at a time.**
 - **One shared view.**  The page draws only what `bayd` reports.  There's no per-visitor state, no "your job", and no control that exists for one viewer and not another.  Ten people watching see the same frame.  The confirm dialog belongs to whoever is about to start a run.  Once they press it, the run belongs to the bay.
@@ -241,23 +245,26 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
 ```
    dock hosts (any number)                      the hub
  ┌────────────────────────┐
- │ bayd   bay A, bay B    │──┐        ┌────────────────────────────┐
+ │ bay A, bay B           │──┐        ┌────────────────────────────┐
  └────────────────────────┘  │  TLS   │ zaweb                      │
  ┌────────────────────────┐  ├───────►│  · the wall of bays        │
- │ bayd   bay C           │──┤ dial   │  · records, by drive       │
+ │ bay C                  │──┤ dial   │  · records, by drive       │
  └────────────────────────┘  │ out    │  · staging, read-only      │
  ┌────────────────────────┐  │        └────────────────────────────┘
- │ bayd   bay D (SAS)     │──┘
+ │ bay D (SAS HBA port)   │──┘
  └────────────────────────┘
 ```
 
-- **`bayd`**: Go, root, systemd, one per dock host, as a static binary with no Docker.
-  - It owns its bays' block devices, the mounts, and the keystream writer and reader.
-  - It owns the job: a running wipe needs nothing from the hub, and the hub going away doesn't touch it.
-  - `bay.toml` lists its bays.  Each bay has a port path, a SMART type (`sat` or `scsi`), and what it can do: `wipe`, `load`, `sas`.
+- **`bayd`, one per bay**, the way Ceph runs one OSD per disk.  Go, a static binary, systemd, no Docker.  Each bay is two template units, with the network side and the disk side kept apart:
+  - **`bayd-link@<bay>`** is always running.  It holds the TLS connection, the heartbeat, and the spool of finished records.  For Load, it pulls the payload from the hub.  It has no device access at all (`DevicePolicy=closed`, nothing allowed), so the hub, and anyone who owns the hub, reaches the disk only through the next unit's checks.
+  - **`bayd@<bay>`** is the disk side.  udev starts it when the selector's device appears, and it's bound to that device (`BindsTo=`), so it stops when the drive leaves.  `DeviceAllow=` is resolved fresh on every insert, which sidesteps a re-inserted drive getting a new minor number.  It has no network (`IPAddressDeny=any`, unix sockets only).  It owns the read, the keystream writer and reader, the mounts, and the job, and it talks to its link over a unix socket in `/run/zawiper/<bay>/`.
+  - A running job needs nothing from the link or the hub.  Either can restart without touching it.  If the drive leaves mid-job, the link reports **INTERRUPTED** from the job's state file.
+  - The wall shows a bay as empty while its link is up and its disk unit isn't running, and as offline when its link is down.
+  - `/etc/zawiper/bays/<bay>.toml` holds the selector, the SMART type (`sat` or `scsi`), and what the bay can do: `wipe`, `load`, `sas`.  A two-slot USB dock is one bay: its port is the selector, and the one-LUN refusal stays.
   - Commands, from the hub: `status`, `reread`, `wipe`, `load`, `ack`, `eject`.  No command takes a device, there's no "run this" command, and there's no abort (§4.3).
-  - It can be a bare-metal host or a VM with the dock passed through.  The VM is preferred: a mistake can't reach a hypervisor's own disks.
-- **The hub, `zaweb`**: Go, unprivileged, with no devices.
+  - The host can be bare metal or a VM with the dock passed through.  The VM is preferred: a mistake can't reach a hypervisor's own disks.
+  - **Releases don't go through CI.**  A key that can install `bayd` can wipe whatever is in a bay.  So `bayd` ships through a `fleet zawiper-bay <host>` play run with xram's become: a pinned binary, plus each bay's config and certificate.  Nothing installs it automatically.
+- **The hub, `zaweb`**: Go, unprivileged, with no devices.  It deploys through the-ark's Woodpecker lane like any other container.  It's proposed as a stack on hub-host, pending xram (§11).
   - It holds the `bayd` connections, the records, and a read-only staging mount for Load.
   - It serves the wall of bays (one shared view, §4.3), the list, the records, and the certificates.  Live progress reaches browsers as server-sent events.
   - A bug in it can't write to a disk directly.  It can only send `bayd` a command, and `bayd` checks every one (§4.1).
@@ -283,7 +290,7 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
 | Phase | Deliverable | Needs |
 |---|---|---|
 | **1 — Read-only bay** | `bayd` read path, `zaweb` drive card, Re-read, inspect records, serial list, record page with print.  Nothing can write. | Val: port, Caddy route, DNS |
-| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS.  Records move to the hub.  `bay.toml` holds a list of bays.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  The engine exists: `zwipe` ran the first real wipe on `9VPAX9NA` by hand.  Still to measure: ATA erase through the bridge. | Val: dock-host certs, hub placement |
+| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS, one `bayd` per bay.  The kernel enforces each bay's scope.  Records move to the hub.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  The engine exists: `zwipe` ran the first real wipe on `9VPAX9NA` by hand.  Still to measure: ATA erase through the bridge. | Val: dock-host certs, hub placement |
 | **3 — Wipe + Load** | The hub serves staging; `bayd` pulls with range requests.  Format, load, verify against Kiwix's hashes, ballast, reserve, on-drive records. | Staging mount on the hub |
 | **4 — Polish** | ntfy, metrics, a backup-drive profile, a destruction note on a record. | |
 
@@ -293,8 +300,15 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - the Caddy route `zawiper.example.org` → `192.0.2.18:8460`
   - `/srv/zawiper` in backup scope
   - a Woodpecker deploy lane
-  - for v0.3: where the hub lives (near nas-host, since Load sends everything through it), and a small CA for hub and dock-host certs
-  - Dock hosts no longer need an NFS export.
+  - **Done 2026-10-24:** the route `https://zawiper.example.org` → `192.0.2.18:8460`, private ranges only, with the WAF; the homelab spec is now a pointer to this one.
+  - **Hub placement, proposed:** a stack on hub-host.
+    - Its `/opt/<stack>/data` is already in the hourly restic job.
+    - `/mnt/nas` is already mounted, so staging needs no new export.
+    - Caddy is local.
+    - The cost: hub-host is the most sensitive host, and Load traffic runs NAS → hub-host → dock.  Pending xram's yes.
+  - **The CA:** an offline root made with the `step` CLI, with no step-ca server.  The root key stays with the DR keys.  The hub gets a server certificate, and each bay a one-year client certificate.  Val mints them once the bay names are settled.
+  - **Deploys:** the Woodpecker lane covers the hub.  `bayd` ships by fleet play (§8).
+  - Dock hosts need no NFS export.
 - **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.
   - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.
   - The HBA gives full SCSI health data, `sg_format` for 520-byte drives, and SANITIZE.  That's the Purge route.
