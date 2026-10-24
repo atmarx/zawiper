@@ -7,6 +7,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
@@ -49,14 +50,27 @@ type Server struct {
 
 var funcs = template.FuncMap{
 	"size":     records.Size,
+	"surface":  records.Surface,
+	"legend":   records.SurfaceLegend,
+	"verdict":  records.WipeVerdict,
+	"pass":     records.Pass,
+	"slowline": records.SlowLine,
 	"when":     records.When,
 	"found":    records.FoundLine,
 	"bridge":   records.BridgeLine,
 	"rotation": records.Rotation,
 	"dir":      records.DirName,
-	"commas":   func(n int) string { return records.Commas(int64(n)) },
-	"deref":    func(b *bool) bool { return b != nil && *b },
-	"lower":    func(s model.State) string { return strings.ToLower(string(s)) },
+	"commas": func(n any) string {
+		switch v := n.(type) {
+		case int:
+			return records.Commas(int64(v))
+		case int64:
+			return records.Commas(v)
+		}
+		return fmt.Sprint(n)
+	},
+	"deref": func(b *bool) bool { return b != nil && *b },
+	"lower": func(s model.State) string { return strings.ToLower(string(s)) },
 	"grade": func(g smart.Grade) string {
 		switch g {
 		case smart.Pass:

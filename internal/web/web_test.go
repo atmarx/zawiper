@@ -13,6 +13,7 @@ import (
 	"zawiper/internal/proto"
 	"zawiper/internal/records"
 	"zawiper/internal/smart"
+	"zawiper/internal/wipe"
 )
 
 const host = "zawiper.example.org"
@@ -52,6 +53,15 @@ func setup(t *testing.T) (*fakeBayd, http.Handler) {
 	if err := store.SaveInspect(rec, js, []byte("smartctl text")); err != nil {
 		t.Fatal(err)
 	}
+	w := *rec
+	w.Started = t0.Add(time.Hour)
+	w.Wrote, w.Before = true, info
+	w.Wipe = &wipe.Result{Method: "AES-256-CTR keystream", Size: 2 << 30, Block: 1 << 30, Written: 2 << 30, Checked: 2 << 30,
+		Started: w.Started, Wrote: w.Started.Add(time.Hour), Verified: w.Started.Add(2 * time.Hour),
+		Cells: []wipe.Cell{{Write: 9, Read: 8}, {Write: 9, Read: 8}}}
+	if err := store.SaveWipe(&w, map[string][]byte{"smart-before.txt": []byte("before")}); err != nil {
+		t.Fatal(err)
+	}
 	f := &fakeBayd{snap: model.Snapshot{State: model.Present, Bay: "the bay", Drive: drv, RecordID: rec.ID}}
 	s := &Server{Bayd: f, Store: store, Hosts: []string{host}, Version: "test"}
 	return f, s.Handler()
@@ -73,9 +83,11 @@ func TestPages(t *testing.T) {
 		"/drives":          {"9VPAX9NA", "1 drive on record"},
 		"/drives?q=x9n":    {"9VPAX9NA"},
 		"/drives/9VPAX9NA": {"2026-10-23T14-02-11Z-inspect", "inspect"},
-		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect":           {"DRIVE RECORD", "Airflow_Temperature_Cel", "5 000c50 02d635ade", "Nothing was written", "PASSED"},
-		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/record.md": {"# 9VPAX9NA"},
-		"/static/zawiper.css":                                     {"--hazard"},
+		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect":               {"DRIVE RECORD", "Airflow_Temperature_Cel", "5 000c50 02d635ade", "Nothing was written", "PASSED"},
+		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/record.md":     {"# 9VPAX9NA"},
+		"/drives/9VPAX9NA/2026-10-23T15-02-11Z-wipe":                  {"Wiped, verified", "Wipe: verified", "2,147,483,648 of 2,147,483,648", "██", "Found before the wipe", "smart-before.txt", "Every byte"},
+		"/drives/9VPAX9NA/2026-10-23T15-02-11Z-wipe/smart-before.txt": {"before"},
+		"/static/zawiper.css":                                         {"--hazard"},
 	} {
 		w := get(h, path)
 		if w.Code != 200 {

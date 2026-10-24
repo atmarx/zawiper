@@ -6,13 +6,14 @@
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.md?download">record.md</a>
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.json?download">record.json</a>
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/smart.txt">smart.txt</a>
+  {{if .Before}}<a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/smart-before.txt">smart-before.txt</a>{{end}}
 </div>
 
 <article class="record">
   <header class="record-head">
     <div class="record-brand">ZA WIPER · DRIVE RECORD</div>
     <h1 class="serial-big">{{template "serial" .Serial}}</h1>
-    <p class="lede">{{if .Drive.SMART}}{{.Drive.SMART.Model}}{{end}} · {{size .Drive.Size}} · {{if eq .Kind "inspect"}}Inspected, read only{{else}}{{.Kind}}{{end}}</p>
+    <p class="lede">{{if .Drive.SMART}}{{.Drive.SMART.Model}}{{end}} · {{size .Drive.Size}} · {{if eq .Kind "inspect"}}Inspected, read only{{else if .Wipe}}Wiped, {{verdict .Wipe}}{{else}}{{.Kind}}{{end}}</p>
   </header>
 
   <section>
@@ -40,8 +41,25 @@
     </dl>
   </section>
 
+  {{with .Wipe}}
+  <section class="wipe">
+    <h2>Wipe: {{verdict .}}</h2>
+    <p>{{.Method}}.</p>
+    <dl class="facts">
+      <dt>Started</dt><dd>{{when .Started}}</dd>
+      <dt>Write pass</dt><dd>{{pass . false}}</dd>
+      <dt>Verify pass</dt><dd>{{pass . true}}</dd>
+      <dt>Read back as written</dt><dd>{{commas .Checked}} of {{commas .Size}} bytes</dd>
+      {{if .Bad}}<dt>Bad</dt><dd>{{commas .Bad}} bytes</dd>{{end}}
+      <dt>Slow blocks</dt><dd>{{slowline .}}</dd>
+    </dl>
+    <pre class="surface">{{surface .}}</pre>
+    <p class="muted">{{legend .}}</p>
+  </section>
+  {{end}}
+
   <section>
-    <h2>Found on it</h2>
+    <h2>{{if .Wipe}}Found before the wipe{{else}}Found on it{{end}}</h2>
     {{template "found" .Drive}}
   </section>
 
@@ -71,7 +89,7 @@
   </section>
 
   <footer class="record-foot">
-    {{if not .Wrote}}Nothing was written to this drive.  {{end}}This record states what Za Wiper observed on the date shown, and nothing more.
+    {{if not .Wrote}}Nothing was written to this drive.  {{end}}{{if .Wipe}}{{if .Wipe.OK}}Every byte of this drive was overwritten with a keystream from a key that existed only in memory, then read back and compared.  {{end}}{{end}}This record states what Za Wiper observed on the date shown, and nothing more.
   </footer>
 </article>
 {{end}}

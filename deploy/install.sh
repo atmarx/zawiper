@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-install -m 0755 bin/bayd /usr/local/bin/bayd
+install -m 0755 bin/bayd bin/zwipe /usr/local/bin/
 install -d -m 0755 /etc/zawiper /srv/zawiper
 if [[ ! -f /etc/zawiper/bay.toml ]]; then
     echo "No /etc/zawiper/bay.toml.  Run \`bayd ports\`, then write it:" >&2

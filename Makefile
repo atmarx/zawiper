@@ -8,6 +8,7 @@ HOST    ?= 192.0.2.18
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/bayd ./cmd/bayd
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/zaweb ./cmd/zaweb
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/zwipe ./cmd/zwipe
 
 test:
 	go vet ./...

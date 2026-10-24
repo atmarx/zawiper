@@ -25,3 +25,14 @@ name = "the bay"
 port = "10-1"          # the caddy's USB port, as the VM's sysfs names it
 smart_type = "sat"
 ```
+
+## Wipe by hand
+
+Until bayd learns to wipe (Phase 2), `zwipe` does it from a root shell on dock-host.  It runs the same read bayd does, refuses on the same grounds, and wants the drive's serial as the confirmation.  It overwrites every byte with an AES-256-CTR keystream, reads it all back and compares, and times each 1 GiB block for the surface map.  The record lands beside the drive's inspections.
+
+```
+sudo systemctl stop bayd          # bayd re-reading would set the drive read-only mid-wipe
+sudo systemd-run --unit=zwipe /usr/local/bin/zwipe -serial 9VPAX9NA
+journalctl -fu zwipe
+sudo systemctl start bayd
+```

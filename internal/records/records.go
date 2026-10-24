@@ -18,15 +18,16 @@ import (
 
 	"zawiper/internal/model"
 	"zawiper/internal/smart"
+	"zawiper/internal/wipe"
 )
 
 const Schema = 1
 
-// Record is one job on one drive.  Phase 1 only files inspections.
+// Record is one job on one drive: an inspection, or a wipe.
 type Record struct {
 	Schema   int          `json:"schema"`
 	ID       string       `json:"id"`
-	Kind     string       `json:"kind"` // inspect
+	Kind     string       `json:"kind"` // inspect or wipe
 	Serial   string       `json:"serial"`
 	Started  time.Time    `json:"started"` // when the drive went in
 	Finished time.Time    `json:"finished"`
@@ -37,6 +38,11 @@ type Record struct {
 	Health   smart.Health `json:"health"`
 	Refusals []string     `json:"refusals,omitempty"`
 	Wrote    bool         `json:"wrote"` // anything written to the drive
+
+	// A wipe: Drive is what the read found beforehand, with SMART from
+	// after the wipe; Before is SMART from before it.
+	Wipe   *wipe.Result `json:"wipe,omitempty"`
+	Before *smart.Info  `json:"smart_before,omitempty"`
 }
 
 // Summary is drive.json: enough for the list without opening every record.
@@ -58,6 +64,9 @@ var Files = map[string]string{
 	"record.json": "application/json",
 	"smart.json":  "application/json",
 	"smart.txt":   "text/plain; charset=utf-8",
+
+	"smart-before.json": "application/json",
+	"smart-before.txt":  "text/plain; charset=utf-8",
 }
 
 type Store struct{ Root string }
@@ -91,8 +100,19 @@ func RecordID(started time.Time, kind string) string {
 // SaveInspect files what a read saw.  smartJSON and smartText are smartctl's
 // raw output, kept beside the record.
 func (s *Store) SaveInspect(r *Record, smartJSON, smartText []byte) error {
-	r.Schema = Schema
 	r.Kind = "inspect"
+	return s.save(r, map[string][]byte{"smart.json": smartJSON, "smart.txt": smartText})
+}
+
+// SaveWipe files a wipe.  raw holds smartctl's output from before and after,
+// under the names in Files.
+func (s *Store) SaveWipe(r *Record, raw map[string][]byte) error {
+	r.Kind = "wipe"
+	return s.save(r, raw)
+}
+
+func (s *Store) save(r *Record, raw map[string][]byte) error {
+	r.Schema = Schema
 	r.ID = RecordID(r.Started, r.Kind)
 	dir := filepath.Join(s.drives(), DirName(r.Serial), r.ID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -102,12 +122,12 @@ func (s *Store) SaveInspect(r *Record, smartJSON, smartText []byte) error {
 	if err != nil {
 		return err
 	}
-	for name, b := range map[string][]byte{
-		"record.json": append(js, '\n'),
-		"record.md":   []byte(Markdown(r)),
-		"smart.json":  smartJSON,
-		"smart.txt":   smartText,
-	} {
+	raw["record.json"] = append(js, '\n')
+	raw["record.md"] = []byte(Markdown(r))
+	for name, b := range raw {
+		if _, ok := Files[name]; !ok {
+			return fmt.Errorf("%s isn't a record file", name)
+		}
 		if err := writeAtomic(filepath.Join(dir, name), b); err != nil {
 			return err
 		}

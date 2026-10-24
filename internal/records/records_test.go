@@ -9,6 +9,7 @@ import (
 
 	"zawiper/internal/model"
 	"zawiper/internal/smart"
+	"zawiper/internal/wipe"
 )
 
 func record(t *testing.T, started time.Time) *Record {
@@ -125,5 +126,32 @@ func TestFoundLineBareDisk(t *testing.T) {
 	}
 	if Commas(11196) != "11,196" || Commas(7) != "7" || Commas(1000000) != "1,000,000" {
 		t.Error("Commas")
+	}
+}
+
+func TestSaveWipe(t *testing.T) {
+	s := &Store{Root: t.TempDir()}
+	r := record(t, time.Date(2026, 10, 24, 15, 0, 0, 0, time.UTC))
+	w := &wipe.Result{Method: "test", Size: 3 << 30, Block: 1 << 30, Written: 3 << 30, Checked: 3 << 30,
+		Started: r.Started, Wrote: r.Started.Add(2 * time.Hour), Verified: r.Started.Add(4 * time.Hour),
+		Cells: []wipe.Cell{{Write: 9, Read: 8}, {Write: 9, Read: 8}, {Write: 9, Read: 8}}}
+	r.Wipe, r.Before, r.Wrote = w, r.Drive.SMART, true
+	if err := s.SaveWipe(r, map[string][]byte{"smart-before.txt": []byte("x"), "smart.txt": []byte("y")}); err != nil {
+		t.Fatal(err)
+	}
+	if r.ID != "2026-10-24T15-00-00Z-wipe" {
+		t.Errorf("id %q", r.ID)
+	}
+	md, _ := os.ReadFile(s.Path("9VPAX9NA", r.ID, "record.md"))
+	for _, want := range []string{"Wiped, verified", "## Wipe: verified", "███", "Found before the wipe", "Every byte", "2:00:00"} {
+		if !strings.Contains(string(md), want) {
+			t.Errorf("record.md lacks %q", want)
+		}
+	}
+	if strings.Contains(string(md), "Nothing was written") {
+		t.Error("a wipe record says nothing was written")
+	}
+	if err := s.SaveWipe(r, map[string][]byte{"../evil": nil}); err == nil {
+		t.Error("saved a file outside the whitelist")
 	}
 }

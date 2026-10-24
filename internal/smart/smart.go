@@ -234,3 +234,27 @@ func Assess(i *Info) Health {
 	}
 	return h
 }
+
+// Rising compares SMART from before and after a wipe.  A watched count that
+// climbs while every sector is written and read back is a drive getting
+// worse under load: that fails it, except for CRC errors, which belong to
+// the cable or the bridge.
+func Rising(before, after *Info) (fails, notes []string) {
+	for _, w := range watched {
+		a, ok1 := before.Attr(w.id)
+		b, ok2 := after.Attr(w.id)
+		if !ok1 || !ok2 || b.Raw <= a.Raw {
+			continue
+		}
+		msg := fmt.Sprintf("%s rose during the wipe, %d → %d.", w.what, a.Raw, b.Raw)
+		if w.id == 199 {
+			notes = append(notes, msg)
+		} else {
+			fails = append(fails, msg)
+		}
+	}
+	if after.ErrorLogCount > before.ErrorLogCount {
+		notes = append(notes, fmt.Sprintf("The drive's error log grew during the wipe, %d → %d entries.", before.ErrorLogCount, after.ErrorLogCount))
+	}
+	return fails, notes
+}

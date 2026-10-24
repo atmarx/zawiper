@@ -152,6 +152,22 @@ func (s *Sys) SetRO(d Device) error {
 	return nil
 }
 
+// SetRW clears the read-only flag, for a wipe.  Only zwipe calls it.
+func (s *Sys) SetRW(d Device) error {
+	for _, n := range append([]string{d.Name}, s.partitions(d)...) {
+		if out, _, err := run(context.Background(), "blockdev", "--setrw", "/dev/"+n); err != nil {
+			return fmt.Errorf("blockdev --setrw /dev/%s: %v %s", n, err, bytes.TrimSpace(out))
+		}
+	}
+	return nil
+}
+
+// Forget drops the kernel's copy of a partition table the wipe destroyed.
+func (s *Sys) Forget(d Device) error {
+	_, _, err := run(context.Background(), "blockdev", "--rereadpt", d.Path)
+	return err
+}
+
 func (s *Sys) SMART(ctx context.Context, d Device) ([]byte, []byte, error) {
 	typ := s.SmartType
 	if typ == "" {
