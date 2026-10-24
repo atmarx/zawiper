@@ -29,7 +29,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 - Access from the internet, or any kind of public lookup.
 - Compliance.  The record states what this machine did.  It isn't an attestation anyone else has to accept.
 
-## 2. Decisions (xram, 2026-10-23)
+## 2. Decisions (xram, 2026-10-23 and 24)
 
 | Question | Call |
 |---|---|
@@ -40,6 +40,9 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 | After | Searchable list of serials → click → results. |
 | Storage | Files per drive (§7).  The list is built by scanning them, so no database is needed at this scale. |
 | Test drive | The Seagate in the bay now (`9VPAX9NA`) is off the wipe pile and can be erased. |
+| While it runs | **One shared view.**  Everyone who opens the page sees the same thing, and nothing on it belongs to anyone's session. |
+| Stopping a run | **No abort on the page.**  Once a run starts, nobody watching can break it.  We all just get to watch. |
+| The look | The wipe screen is MS-DOS DEFRAG: a grid of blocks being wiped, then verified, then loaded (§6.5). |
 
 ## 3. Hardware: the facts (Val, Phase 0)
 
@@ -78,6 +81,8 @@ The visible part is one confirm.  The real guards are the ones that never show u
 - **Network:** the Caddy route on hub-host uses the private-ranges guard and the WAF import (Val).
 - **Browser:** each mutating call needs a matching `Host` and `Origin`, `Content-Type: application/json` (which forces a CORS preflight the server refuses), and an `X-Za-Wiper: 1` header.  A malicious page open in a LAN browser can't start a wipe (*v0.1 §4.5*).
 - **One job at a time.**
+- **One shared view.**  The page draws only what `bayd` reports.  There's no per-visitor state, no "your job", and no control that exists for one viewer and not another.  Ten people watching see the same frame.  The confirm dialog belongs to whoever is about to start a run.  Once they press it, the run belongs to the bay.
+- **Nothing on the page stops a run.**  `bayd` stops a job only on its own evidence (§4.1: identity changed, write error, mismatch).  The only other stop is a person with root on `dock-host`, at a shell: `systemctl stop bayd`.  The job then comes back **INTERRUPTED**, like a power cut.
 
 ## 5. States
 
@@ -94,11 +99,11 @@ EMPTY ─insert─► READING ─► PRESENT ─confirm─► RUNNING ─► DON
 | `EMPTY` | "Nothing in the bay." Search box, last few drives. |
 | `READING` | The command being run right now. |
 | `PRESENT` | Drive card, Re-read, Wipe, Wipe + Load. |
-| `RUNNING` | **Do not pull the drive.**  Phase, progress, MB/s, ETA, temperature, errors. |
+| `RUNNING` | **Do not pull the drive.**  The surface map (§6.5), phase, MB/s, ETA, temperature, errors.  No buttons. |
 | `DONE` | Grade, headline numbers, link to the record, Eject. |
 | `FAILED` | The evidence first: phase, offset, what the drive said. |
 | `INTERRUPTED` | "The power went out mid-wipe.  I don't know what state this drive is in, and I won't pretend I do."  Stays until acknowledged, then logs an incomplete job. |
-| `ALARM` | Full-width stop.  Job aborted.  Needs acknowledgement. |
+| `ALARM` | Full-width stop.  `bayd` ended the job itself.  Needs acknowledgement. |
 
 State is written to disk before every transition.
 
@@ -145,6 +150,24 @@ The payload source is the staging symlink farm, so the copy follows links (`--co
 
 Thresholds live in a config file, with the reason next to each one.
 
+### 6.5 The surface map
+
+The wipe screen is DEFRAG.  The drive is a grid of 1 GiB blocks.  It's 932 cells for a terabyte, laid out in text-mode rows and drawn in the IBM VGA 8×16 font (Ultimate Oldschool PC Font Pack, CC BY-SA 4.0, self-hosted).  The colors are the blue field and gray frames, with a status box and a legend below.
+
+| Cell | Means |
+|---|---|
+| `░` | not reached yet |
+| `W` / `R` | being written / being read back now |
+| `▓` | written |
+| `█` | read back and verified |
+| `▒` | slow: over twice the median time of its 16 neighbours.  Neighbours, because a spinning drive slows toward the inner tracks on its own. |
+| `B` | bad: a write or read error, or bytes that came back wrong |
+| shelf colors | Load: each ZIM lands as a run, colored by shelf.  The cells come from where the filesystem actually put the file, not from a cursor. |
+
+`bayd` keeps the cell states, and the page gets them as one short string a tick.  Every viewer gets the same string (§4.3).  The final map, with each block's write and read times, goes into the record.  `record.md` and the printout carry it as text, so the map ships with the drive.
+
+The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9VPAX9NA` on 2026-10-24.  It's a root CLI with the same read and refusals as `bayd`, and the serial on the command line as the confirmation.  When Phase 2 lands, its engine (`internal/wipe`) moves into `bayd` and the CLI goes away.
+
 ## 7. The record
 
 **Files are the source of truth.**  Each drive gets a folder named for its SMART serial.  Each job adds one record.
@@ -174,7 +197,7 @@ Thresholds live in a config file, with the reason next to each one.
 
 ## 8. Architecture
 
-- **`bayd`**: Go, root, systemd, on `dock-host`.  Owns the block device, mounts, the keystream writer and reader, and the records.  It listens on a unix socket with a fixed verb list: `status`, `reread`, `wipe`, `load`, `abort`, `ack`, `eject`, `records`.  No verb takes a device, and there's no "run this" verb.
+- **`bayd`**: Go, root, systemd, on `dock-host`.  Owns the block device, mounts, the keystream writer and reader, and the records.  It listens on a unix socket with a fixed verb list: `status`, `reread`, `wipe`, `load`, `ack`, `eject`, `records`.  No verb takes a device, there's no "run this" verb, and there's no abort (§4.3).
 - **`zaweb`**: Go, an unprivileged container with a read-only root filesystem, no devices, and the socket bind-mounted in.  It serves the embedded UI, server-sent events for live progress, the list, and the records.  A bug in `zaweb` can't write to a disk.
 - **Payload:** staging mounted read-only on `dock-host` over NFS.  The NAS export and firewall need `dock-host` added (Val).
 - **Tests without a drive:** `bayd --bay-file` on a loop device, with device-mapper `error` and `delay` targets for read failures and stalls, and a wrap-around map that fakes a lying-capacity drive (*v0.1 §13*).
@@ -198,7 +221,7 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
 | Phase | Deliverable | Needs |
 |---|---|---|
 | **1 — Read-only bay** | `bayd` read path, `zaweb` drive card, Re-read, inspect records, serial list, record page with print.  Nothing can write. | Val: port, Caddy route, DNS |
-| **2 — Wipe** | Keystream overwrite + verify, SMART diff, grade, `record.md`, PDF.  First real run on `9VPAX9NA`, which also measures throughput and ATA erase through the bridge. | |
+| **2 — Wipe** | Keystream overwrite + verify, SMART diff, grade, `record.md`, PDF, and the live surface map as one shared view.  The engine exists: `zwipe` ran the first real wipe on `9VPAX9NA` by hand.  Still to measure: ATA erase through the bridge. | |
 | **3 — Wipe + Load** | Format, load, verify the load, ballast, reserve, on-drive records.  Signing. | NFS export to `dock-host` |
 | **4 — Polish** | ntfy, metrics, a backup-drive profile, a destruction note on a record. | |
 
