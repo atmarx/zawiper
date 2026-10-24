@@ -1,12 +1,19 @@
-# Za Wiper — a drive bay that reads, wipes, proves, and fills with an Ark
+# Za Wiper — drive bays that read, wipe, prove, and sometimes fill with an Ark
 
-Spec v0.2, 2026-10-23.  Zim, for The Ark.  Idea and name: xram.
+Spec v0.3, 2026-10-24.  Zim, for The Ark.  Idea and name: xram.
 
-v0.1 was written 2026-10-09 in the homelab repo (`docs/specs/za-wiper.md` at `d73b3bc`).  This version moves it home and folds in xram's calls of 2026-10-23 and Val's Phase 0 hardware facts.  Where v0.1 had more detail than this, and that detail still holds, this doc says so by section number, e.g. *v0.1 §8.3*.
+v0.1 was written 2026-10-09 in the homelab repo (`docs/specs/za-wiper.md` at `d73b3bc`).  v0.2 moved it home and folded in xram's calls of 2026-10-23 and Val's Phase 0 hardware facts.  v0.3 adds the calls of 2026-10-24:
+- many bays on many hosts behind one hub
+- the wipe record as a certificate for resale
+- one shared view, with no abort
+
+The first real wipe ran that day.  Where v0.1 had more detail than this, and that detail still holds, this doc says so by section number, e.g. *v0.1 §8.3*.
 
 ## 1. What it is
 
-One USB drive caddy on dev-host, passed through by port to `dock-host` (192.0.2.18).  A local-only web page at **`zawiper.example.org`** watches it.
+Drive docks on any host assigned to the job, each run by a `bayd`, all reporting to one hub.  A local-only web page at **`zawiper.example.org`** shows every bay on one wall.  The first dock is a USB caddy on dev-host, passed through by port to `dock-host` (192.0.2.18).
+
+**Mostly, it wipes drives for sale.**  Buyers on eBay and r/homelabsales want three things: a blank drive, proof nothing's left on it, and that drive's own health.  The record is that proof, and it prints as a certificate (§7).  Loading an Ark is the rarer job, for drives given as gifts or handed out.
 
 1. **Put a drive in.**  Its read-only facts appear on their own: identity, SMART, the filesystems on it, and how much file data they hold.  The button on the page is **Re-read**.
 2. **Look, then decide.**  If it's okay to wipe, press **Wipe** or **Wipe + Load**.  The confirmation restates what will be destroyed.
@@ -18,16 +25,15 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 ### Goals, in order
 
 1. **Can't be pointed at the wrong disk.**  This outranks everything else.
-2. **Prove the wipe.**  Write every sector, read every sector back, and say exactly what happened.
+2. **Prove the wipe, to a stranger.**  Write every sector, read every sector back, and say exactly what happened, in a certificate a buyer can check without trusting us (§7).
 3. **Keep a record per serial** that you can still read when the software is gone.
 4. **Load an Ark** and fill the drive to the last byte.
 5. **Survive real life:** the browser closes, the VM reboots, someone yanks the drive.
 
 ### Non-goals
 
-- More than one bay.  A second caddy would be a second instance.
 - Access from the internet, or any kind of public lookup.
-- Compliance.  The record states what this machine did.  It isn't an attestation anyone else has to accept.
+- Certification.  The certificate follows NIST SP 800-88's *Clear* level and its sample certificate, but it's our statement of what this machine did, not an audit.  *Purge* needs the drive's own SANITIZE or ATA Secure Erase.  We'll record it when the bridge or HBA passes it through, and we won't claim it when it doesn't.
 
 ## 2. Decisions (xram, 2026-10-23 and 24)
 
@@ -43,11 +49,14 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 | While it runs | **One shared view.**  Everyone who opens the page sees the same thing, and nothing on it belongs to anyone's session. |
 | Stopping a run | **No abort on the page.**  Once a run starts, nobody watching can break it.  We all just get to watch. |
 | The look | The wipe screen is MS-DOS DEFRAG: a grid of blocks being wiped, then verified, then loaded (§6.5). |
+| What it's for | Mostly wiping drives for sale.  The buyer wants a blank drive, a certificate of deletion, and that drive's health.  Wipe + Load is the gift case. |
+| Many bays | `bayd` runs on any number of dock hosts.  One hub (`zaweb` plus the records) talks to all of them.  A drive's history follows its identity, not the dock it was in (§8). |
+| Load payload | The hub serves staging, and `bayd` pulls it over plain HTTP with range requests.  No tusd, and no NAS mount on dock hosts.  Sending a loadout over the network twice is fine. |
 
 ## 3. Hardware: the facts (Val, Phase 0)
 
 - **The passthrough is live.**  dev-host → `dock-host` (VMID 102), `usb0: host=4-2`, attached by port.
-- **One USB device, two slots** (ASMedia ASM1156-PM bridge).  A swap in either slot resets both.  Nothing the host sees names a physical slot.  **v0.2 is one drive at a time:** `bayd` refuses to act if it sees more than one LUN.
+- **One USB device, two slots** (ASMedia ASM1156-PM bridge).  A swap in either slot resets both.  Nothing the host sees names a physical slot.  **One drive per bay:** `bayd` refuses to act if it sees more than one LUN.
 - **Slot 0 once reported a placeholder size** (4.14 GB for two different drives).  Refuse a drive whose block size doesn't match what SMART reports, or whose SMART can't be read.
 - **`smartctl -d sat` works from inside the VM.**
 - **Key everything on the SMART serial.**  The kernel's serial was all zeros with two drives in the enclosure.
@@ -59,7 +68,8 @@ The visible part is one confirm.  The real guards are the ones that never show u
 
 ### 4.1 Invisible, always on
 
-- **The API can't name a disk.**  No endpoint takes a device path, a serial, or a major:minor number.  `bayd` finds the bay itself from `/etc/zawiper/bay.toml`, which pins it to a USB port path and is written once by `bayd provision` (*v0.1 §4.1, §5.1*).
+- **The API can't name a disk.**  No endpoint takes a device path or a major:minor number.  `bayd` finds its bays from its own `/etc/zawiper/bay.toml`, which pins each one to a port path and is written once by a person provisioning the host (*v0.1 §4.1, §5.1*).  The hub can address a bay, never a device.
+- **A start carries what the confirm showed.**  Wipe and Load name the bay, the drive identity, and the insertion session the confirm was drawn from.  `bayd` refuses if that isn't what it holds right now.  So a stale confirm, a swapped drive, or a hub that's confused all fail closed.
 - **One LUN, sane size.**  `bayd` refuses if the port shows two block devices, if the size doesn't match SMART, or if the size is outside 8 GiB–64 TiB.
 - **Never a host disk.**  `bayd` refuses anything mounted by the host, or anything holding a root, Docker, or LVM/ZFS member that the VM is using.  The VM's own disks are `sd*`/`vd*` too, which is exactly what `ark stamp`'s current guard gets wrong (§9).
 - **Identity is pinned for the whole job.**  Before each destructive phase, and at least every 100 GiB, `bayd` re-reads serial, size, and WWN.  Any change aborts the job and raises **ALARM**.
@@ -79,6 +89,7 @@ The visible part is one confirm.  The real guards are the ones that never show u
 ### 4.3 The page itself
 
 - **Network:** the Caddy route on hub-host uses the private-ranges guard and the WAF import (Val).
+- **Dock hosts don't listen.**  Each `bayd` dials out to the hub over TLS, with certificates checked on both sides, and keeps that one connection open.  Commands come down it, and status and records go up.  A dock host exposes no port.  The hub is the trust point: owning it means being able to wipe whatever is sitting in a bay.  So it stays small, on a backed-up host.
 - **Browser:** each mutating call needs a matching `Host` and `Origin`, `Content-Type: application/json` (which forces a CORS preflight the server refuses), and an `X-Za-Wiper: 1` header.  A malicious page open in a LAN browser can't start a wipe (*v0.1 §4.5*).
 - **One job at a time.**
 - **One shared view.**  The page draws only what `bayd` reports.  There's no per-visitor state, no "your job", and no control that exists for one viewer and not another.  Ten people watching see the same frame.  The confirm dialog belongs to whoever is about to start a run.  Once they press it, the run belongs to the bay.
@@ -122,18 +133,22 @@ Identity, SMART attributes and logs, the signature scan, and the read-only peek 
 | 3 | **Overwrite** | Every sector, with a seeded keystream (*v0.1 §8.1*: ChaCha20 or AES-CTR, random key per job, aligned blocks ≥ 4 MiB, `O_DIRECT`).  Throughput sampled every few seconds. |
 | 4 | **Verify** | Regenerate the keystream, read every sector back cold, and compare.  This is also a capacity test: a drive that lies about its size fails at the point where it wraps. |
 | 5 | SMART after | Diff of reallocated, pending, uncorrectable, CRC and temperature. |
-| 6 | Clear signatures | Zap GPT and MBR.  The drive is left blank. |
-| 7 | Record | §7. |
+| 6 | Record | §7.  The keystream is left on the drive as it is.  It carries no partition table or filesystem signature, so the drive reads as blank.  Leaving it untouched is what lets a buyer re-check it. |
 
 ### 6.3 Wipe + Load
 
-Phases 1–5 of Wipe, then:
+Phases 1–5 of Wipe, then the load.  The payload comes from the hub, not from a NAS mount on the dock host:
+- **The hub serves staging read-only over HTTP,** following the symlink farm.  It holds the NAS mount; dock hosts never see the NAS.
+- **First comes the loadout's list:** files, sizes, and each ZIM's SHA-256 from Kiwix's `.meta4`.  `bayd` checks that it fits before writing anything.
+- **`bayd` pulls each file onto the target drive.**  A dropped connection resumes with a range request from the partial file's length.  The partial file is the bookmark, so nothing is staged twice.
+- **The load is checked against Kiwix's hashes,** not against the transfer.  So one check catches a bad link, a bad cable, and a bad sector alike.
+- **On cost:** every byte crosses the network twice, NAS → hub → dock.  That's accepted: one bay over gigabit runs about as fast as a drive writes, and loads are rare.
 
 | # | Phase | Notes |
 |---|---|---|
 | 6 | Partition and format | exFAT, label `THE-ARK`. |
-| 7 | **Load** | Copy the chosen loadout from staging, plus `--pack=` if one is picked.  Preflight first: does it fit?  The page only offers loadouts that fit the drive. |
-| 8 | **Verify the load** | Unmount, remount, re-read every file, and compare its SHA-256 with staging. |
+| 7 | **Load** | Pull the chosen loadout from the hub, plus `--pack=` if one is picked.  The page only offers loadouts that fit the drive. |
+| 8 | **Verify the load** | Unmount, remount, re-read every file, and compare its SHA-256 with Kiwix's. |
 | 9 | Records on the drive | `ZA-WIPER.txt` (the human copy, with the viper on top) and `ZA-WIPER.json`. |
 | 10 | **Ballast** | Keystream into `DELETE_THIS_IF_YOU_NEED_SPACE` until `ENOSPC`, then check that a 1-byte write fails too.  The final record goes into a 16 MiB reserve freed at the end (*v0.1 §8.2–8.3*). |
 | 11 | Sync, unmount, eject | |
@@ -170,7 +185,10 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
 
 ## 7. The record
 
-**Files are the source of truth.**  Each drive gets a folder named for its SMART serial.  Each job adds one record.
+**Files are the source of truth, and they live on the hub.**  Each drive gets a folder.  Each job adds one record, from whichever bay ran it.
+
+- **Folder names use the drive's identity, not just its serial.**  Two vendors can ship the same serial.  The folder is the serial when it's unique, and serial plus a short WWN or model suffix when it isn't.  `drive.json` holds the full identity, and search finds a drive by serial, WWN, or model.
+- **`bayd` keeps a finished record** on its own disk until the hub confirms it's stored.  If the hub is down when a wipe ends, nothing is lost.
 
 ```
 /srv/zawiper/drives/
@@ -191,15 +209,59 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
 - **The list is built by scanning** `drives/*/drive.json` at startup and after each job.  A homelab bay will see hundreds of drives, not millions.  If that ever gets slow, a SQLite index can be rebuilt from the files whenever it's needed, but it's never the source of truth.
 - **`record.md` is the record a person reads.**  It reads fine in a terminal, in `less`, or on the drive 20 years from now.
 - **Print and PDF** are rendered from the same data.  The page has a print stylesheet, and the PDF is produced server-side so it can be attached to an email.  Each one carries the serial in large type at the top.
-- **Each record holds:** the drive's identity (and which fields the bridge hid), the job and its options, per-phase results with tool versions and byte counts, verify results, the SMART before/after diff, a throughput summary and stall list, the grade and the rule that produced it, loadout and verify results for a Load job, keystream parameters so anyone can re-verify, and Za Wiper's version and git SHA.
-- **Tamper evidence** comes later (Phase 3): `record.json` signed with `ssh-keygen -Y sign` (*v0.1 §9.4*).
-- **Backups:** `/srv/zawiper/` is the one thing on `dock-host` that can't be recreated.  It goes in the backup scope the day it ships (Val).
+- **Each record holds:**
+  - the drive's identity, and which fields the bridge hid
+  - the bay and host
+  - the job and its options
+  - per-phase results, with tool versions and byte counts
+  - verify results
+  - the SMART before/after diff
+  - per-block timings (the surface map)
+  - the grade, and the rule that produced it
+  - loadout and verify results, for a Load job
+  - the keystream parameters
+  - Za Wiper's version and git SHA
+- **The keystream key is published, on purpose.**  A buyer can regenerate the stream and read the drive back against it, so they can confirm the wipe without trusting us.  Publishing the key loses nothing: the old data is gone whether or not the noise can be reproduced.  `zwipe` 2026-10-24 kept its key in memory only.  That's the one thing this changes in the engine.
+- **A wipe record prints as a certificate of sanitization.**  It's laid out after NIST SP 800-88's sample certificate:
+  - drive identity
+  - method (*Clear*: one keystream overwrite, fully read back)
+  - verification result
+  - date, tool and version
+  - health before and after
+  - the surface map
+  - the signature
+
+  A cropped surface map with the health headline also makes the listing photo.
+- **Signed, from Phase 2.**  `record.json` is signed with `ssh-keygen -Y sign` (*v0.1 §9.4*), and the public key and the verification steps are printed on the certificate.  An unsigned certificate is just a nice PDF.
+- **A verifier for buyers:** a short script, or a page on the certificate, that reads a drive and checks it against the published key.
+- **Backups:** the hub's `/srv/zawiper/` is the one thing in the system that can't be recreated.  It goes in the backup scope the day it ships (Val).
 
 ## 8. Architecture
 
-- **`bayd`**: Go, root, systemd, on `dock-host`.  Owns the block device, mounts, the keystream writer and reader, and the records.  It listens on a unix socket with a fixed verb list: `status`, `reread`, `wipe`, `load`, `ack`, `eject`, `records`.  No verb takes a device, there's no "run this" verb, and there's no abort (§4.3).
-- **`zaweb`**: Go, an unprivileged container with a read-only root filesystem, no devices, and the socket bind-mounted in.  It serves the embedded UI, server-sent events for live progress, the list, and the records.  A bug in `zaweb` can't write to a disk.
-- **Payload:** staging mounted read-only on `dock-host` over NFS.  The NAS export and firewall need `dock-host` added (Val).
+```
+   dock hosts (any number)                      the hub
+ ┌────────────────────────┐
+ │ bayd   bay A, bay B    │──┐        ┌────────────────────────────┐
+ └────────────────────────┘  │  TLS   │ zaweb                      │
+ ┌────────────────────────┐  ├───────►│  · the wall of bays        │
+ │ bayd   bay C           │──┤ dial   │  · records, by drive       │
+ └────────────────────────┘  │ out    │  · staging, read-only      │
+ ┌────────────────────────┐  │        └────────────────────────────┘
+ │ bayd   bay D (SAS)     │──┘
+ └────────────────────────┘
+```
+
+- **`bayd`**: Go, root, systemd, one per dock host, as a static binary with no Docker.
+  - It owns its bays' block devices, the mounts, and the keystream writer and reader.
+  - It owns the job: a running wipe needs nothing from the hub, and the hub going away doesn't touch it.
+  - `bay.toml` lists its bays.  Each bay has a port path, a SMART type (`sat` or `scsi`), and what it can do: `wipe`, `load`, `sas`.
+  - Commands, from the hub: `status`, `reread`, `wipe`, `load`, `ack`, `eject`.  No command takes a device, there's no "run this" command, and there's no abort (§4.3).
+  - It can be a bare-metal host or a VM with the dock passed through.  The VM is preferred: a mistake can't reach a hypervisor's own disks.
+- **The hub, `zaweb`**: Go, unprivileged, with no devices.
+  - It holds the `bayd` connections, the records, and a read-only staging mount for Load.
+  - It serves the wall of bays (one shared view, §4.3), the list, the records, and the certificates.  Live progress reaches browsers as server-sent events.
+  - A bug in it can't write to a disk directly.  It can only send `bayd` a command, and `bayd` checks every one (§4.1).
+- **Payload:** pulled from the hub (§6.3).  Dock hosts need no NFS export.
 - **Tests without a drive:** `bayd --bay-file` on a loop device, with device-mapper `error` and `delay` targets for read failures and stalls, and a wrap-around map that fakes a lying-capacity drive (*v0.1 §13*).
 - **Code lives in** `zawiper/` in this repo.  It deploys through its own Woodpecker lane; the seed pipeline doesn't run for changes there.
 - **ntfy** on DONE, FAILED, INTERRUPTED, and ALARM.  A 20-hour job ends while you're asleep.
@@ -221,13 +283,22 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
 | Phase | Deliverable | Needs |
 |---|---|---|
 | **1 — Read-only bay** | `bayd` read path, `zaweb` drive card, Re-read, inspect records, serial list, record page with print.  Nothing can write. | Val: port, Caddy route, DNS |
-| **2 — Wipe** | Keystream overwrite + verify, SMART diff, grade, `record.md`, PDF, and the live surface map as one shared view.  The engine exists: `zwipe` ran the first real wipe on `9VPAX9NA` by hand.  Still to measure: ATA erase through the bridge. | |
-| **3 — Wipe + Load** | Format, load, verify the load, ballast, reserve, on-drive records.  Signing. | NFS export to `dock-host` |
+| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS.  Records move to the hub.  `bay.toml` holds a list of bays.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  The engine exists: `zwipe` ran the first real wipe on `9VPAX9NA` by hand.  Still to measure: ATA erase through the bridge. | Val: dock-host certs, hub placement |
+| **3 — Wipe + Load** | The hub serves staging; `bayd` pulls with range requests.  Format, load, verify against Kiwix's hashes, ballast, reserve, on-drive records. | Staging mount on the hub |
 | **4 — Polish** | ntfy, metrics, a backup-drive profile, a destruction note on a record. | |
 
 ## 11. Open
 
-- **Val:** the `zaweb` port (to come), the Caddy route `zawiper.example.org` → `192.0.2.18`, NFS export for staging, `/srv/zawiper` in backup scope, and a Woodpecker deploy lane.
+- **Val:**
+  - the Caddy route `zawiper.example.org` → `192.0.2.18:8460`
+  - `/srv/zawiper` in backup scope
+  - a Woodpecker deploy lane
+  - for v0.3: where the hub lives (near nas-host, since Load sends everything through it), and a small CA for hub and dock-host certs
+  - Dock hosts no longer need an NFS export.
+- **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.
+  - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.
+  - The HBA gives full SCSI health data, `sg_format` for 520-byte drives, and SANITIZE.  That's the Purge route.
+  - Either way, `bayd` needs a SCSI SMART reader and grader: grown defect list, error counter log.
 - **Zim:** the seed pipeline stages whatever the catalog has newest, so a hold in a manifest is only a comment to it.  Holds need to be real (a pinned `file:` in the manifest) before the next push that should run seed.
 
 ---
