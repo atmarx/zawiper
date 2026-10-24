@@ -264,7 +264,7 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
   - Commands, from the hub: `status`, `reread`, `wipe`, `load`, `ack`, `eject`.  No command takes a device, there's no "run this" command, and there's no abort (§4.3).
   - The host can be bare metal or a VM with the dock passed through.  The VM is preferred: a mistake can't reach a hypervisor's own disks.
   - **Releases don't go through CI.**  A key that can install `bayd` can wipe whatever is in a bay.  So `bayd` ships through a `fleet zawiper-bay <host>` play run with xram's become: a pinned binary, plus each bay's config and certificate.  Nothing installs it automatically.
-- **The hub, `zaweb`**: Go, unprivileged, with no devices.  It deploys through the-ark's Woodpecker lane like any other container.  It's proposed as a stack on hub-host, pending xram (§11).
+- **The hub, `zaweb`**: Go, unprivileged, with no devices.  It deploys through the-ark's Woodpecker lane like any other container.  It runs as a stack on hub-host (§11).
   - It holds the `bayd` connections, the records, and a read-only staging mount for Load.
   - It serves the wall of bays (one shared view, §4.3), the list, the records, and the certificates.  Live progress reaches browsers as server-sent events.
   - A bug in it can't write to a disk directly.  It can only send `bayd` a command, and `bayd` checks every one (§4.1).
@@ -301,15 +301,15 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - `/srv/zawiper` in backup scope
   - a Woodpecker deploy lane
   - **Done 2026-10-24:** the route `https://zawiper.example.org` → `192.0.2.18:8460`, private ranges only, with the WAF; the homelab spec is now a pointer to this one.
-  - **Hub placement, proposed:** a stack on hub-host.
+  - **Hub placement, decided (xram, 2026-10-24):** a stack on hub-host.  It moves in Phase 2, when the hub connection replaces the local socket.
     - Its `/opt/<stack>/data` is already in the hourly restic job.
     - `/mnt/nas` is already mounted, so staging needs no new export.
     - Caddy is local.
-    - The cost: hub-host is the most sensitive host, and Load traffic runs NAS → hub-host → dock.  Pending xram's yes.
+    - The cost: hub-host is the most sensitive host, and Load traffic runs NAS → hub-host → dock.  Accepted.
   - **The CA:** an offline root made with the `step` CLI, with no step-ca server.  The root key stays with the DR keys.  The hub gets a server certificate, and each bay a one-year client certificate.  Val mints them once the bay names are settled.
   - **Deploys:** the Woodpecker lane covers the hub.  `bayd` ships by fleet play (§8).
   - Dock hosts need no NFS export.
-- **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.
+- **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.  xram has a PCIe RAID card to try.  It qualifies only if it runs as a plain HBA (IT firmware, or a mode that loads `mpt3sas`/`mpt2sas`, not `megaraid_sas`).  It can go straight into a host or be passed through to a VM.
   - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.
   - The HBA gives full SCSI health data, `sg_format` for 520-byte drives, and SANITIZE.  That's the Purge route.
   - Either way, `bayd` needs a SCSI SMART reader and grader: grown defect list, error counter log.
