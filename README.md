@@ -6,6 +6,8 @@ The drive bays from [docs/za-wiper.md](../docs/za-wiper.md).  Phase 2: many bays
 - **`bayd-link@<bay>`** is its network side, running as `zawiper` with no devices at all.  It dials out to the hub over mutual TLS with the bay's own client certificate, carries commands down to the socket, and uploads the spool.  A dock host listens on nothing.
 - **`zaweb`** is the hub, a container on hub-host: the wall of bays, the records, the certificates.  Browsers reach it through Caddy at `zawiper.example.org` (8460).  Bays reach it directly on 8461.
 
+Records stay on the hub.  Each record page has a `proof.zip`: the record, its signature, the SMART files and the hub's public key, everything a buyer needs to check the drive without reaching the hub.  `zaweb -site-url https://…` puts a link and QR code to the record on the certificate instead, once a hub has an address worth printing.
+
 The disk side runs as root in group `zawiper`, so the socket, the state file and the spool belong to the link's group without a chown anywhere.
 
 ## Work on it

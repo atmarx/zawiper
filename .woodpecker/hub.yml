@@ -61,7 +61,8 @@ steps:
       # Running (not restarting), and answering where Caddy will ask.
       - sleep 5
       - "test \"$$(docker inspect -f '{{.State.Status}}' zaweb)\" = running"
-      - "docker exec caddy curl -sf -o /dev/null -H 'Host: zawiper.example.org' http://zaweb:8460/"
+      # Caddy's image may have busybox wget and no curl.
+      - "docker exec caddy sh -c 'if command -v curl >/dev/null; then curl -sf -o /dev/null -H \"Host: zawiper.example.org\" http://zaweb:8460/healthz; else wget -q -O /dev/null --header \"Host: zawiper.example.org\" http://zaweb:8460/healthz; fi'"
       - echo "zaweb ${CI_COMMIT_SHA:0:7} is up on hub-host"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
