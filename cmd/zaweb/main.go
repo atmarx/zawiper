@@ -5,11 +5,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	_ "time/tzdata" // the container has no zoneinfo; TZ still works
@@ -17,6 +19,7 @@ import (
 	"zawiper/internal/hub"
 	"zawiper/internal/proto"
 	"zawiper/internal/records"
+	"zawiper/internal/sign"
 	"zawiper/internal/web"
 )
 
@@ -34,9 +37,12 @@ func main() {
 	tlsCA := flag.String("tls-ca", "/etc/zawiper/tls/ca.crt", "the CA that signs bay certificates")
 	tlsCert := flag.String("tls-cert", "/etc/zawiper/tls/hub.crt", "the hub's certificate for the link")
 	tlsKey := flag.String("tls-key", "/etc/zawiper/tls/hub.key", "the hub's key for the link")
+	signKey := flag.String("sign-key", "/srv/zawiper/keys/za-wiper", "the key records are signed with; made on first start if it's missing")
+	site := flag.String("site-url", "https://zawiper.example.org", "the hub's address, printed on certificates; empty leaves it off")
 	flag.Parse()
 
 	var fleet hub.Fleet
+	var signer *sign.Signer
 	store := &records.Store{Root: *root}
 	if *demo {
 		fleet = web.NewDemoFleet()
@@ -47,7 +53,16 @@ func main() {
 		}
 		log.Printf("demo fleet: nothing here touches a drive")
 	} else {
-		h, err := hub.New(hub.Config{Addr: *linkAddr, CAFile: *tlsCA, CertFile: *tlsCert, KeyFile: *tlsKey, Store: store})
+		var err error
+		if signer, err = loadSigner(*signKey, *site); err != nil {
+			log.Fatalf("signing key: %v", err)
+		}
+		h, err := hub.New(hub.Config{Addr: *linkAddr, CAFile: *tlsCA, CertFile: *tlsCert, KeyFile: *tlsKey, Store: store,
+			OnStored: func(serial, id string) {
+				if err := signer.SignRecord(store, serial, id); err != nil {
+					log.Printf("sign %s/%s: %v", serial, id, err)
+				}
+			}})
 		if err != nil {
 			log.Fatalf("hub: %v", err)
 		}
@@ -60,6 +75,7 @@ func main() {
 		Fleet:   fleet,
 		Store:   store,
 		Version: "zaweb " + version + " (" + commit + ")",
+		Signer:  signer,
 	}
 	for _, h := range strings.Split(*hosts, ",") {
 		if h = strings.TrimSpace(h); h != "" {
@@ -73,4 +89,28 @@ func main() {
 	}
 	log.Printf("%s on %s, hosts %v", s.Version, *listen, s.Hosts)
 	log.Fatal(srv.ListenAndServe())
+}
+
+// loadSigner reads the signing key, or makes one the first time.  The key
+// lives with the records, so it's in the same backup.
+func loadSigner(path, site string) (*sign.Signer, error) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, err
+		}
+		pub, err := sign.GenerateKey(path)
+		if err != nil {
+			return nil, err
+		}
+		log.Printf("made a new signing key at %s: %s", path, sign.AuthorizedKey(pub))
+	}
+	key, err := sign.LoadKey(path)
+	if err != nil {
+		return nil, err
+	}
+	s := &sign.Signer{Key: key, SiteURL: strings.TrimSuffix(site, "/")}
+	if s.SiteURL != "" {
+		s.KeyURL = s.SiteURL + "/za-wiper.pub"
+	}
+	return s, nil
 }

@@ -8,6 +8,7 @@
 package web
 
 import (
+	"crypto/ed25519"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"zawiper/internal/model"
 	"zawiper/internal/proto"
 	"zawiper/internal/records"
+	"zawiper/internal/sign"
 	"zawiper/internal/smart"
 )
 
@@ -41,6 +43,9 @@ type Server struct {
 	Store   *records.Store
 	Hosts   []string // Host headers we answer to; empty answers any (dev only)
 	Version string
+	// Signer signs records as they arrive and is printed on certificates.
+	// Nil means unsigned: the certificate says so.
+	Signer *sign.Signer
 
 	pages  map[string]*template.Template
 	events *events
@@ -128,6 +133,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /drives/{serial}/{id}", s.record)
 	mux.HandleFunc("GET /drives/{serial}/{id}/{file}", s.file)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
+	mux.HandleFunc("GET /za-wiper.pub", s.pubkey)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	return s.hosts(headers(mux))
 }
@@ -423,7 +429,22 @@ func (s *Server) record(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.render(w, "record", "layout", map[string]any{"Title": rec.Serial + " · " + rec.ID, "Nav": "drives", "R": rec, "Dir": serial, "Version": s.Version})
+	data := map[string]any{"Title": rec.Serial + " · " + rec.ID, "Nav": "drives", "R": rec, "Dir": serial, "Version": s.Version}
+	if c := records.NewCertificate(rec, s.Signer.Seal(s.Store, serial, id)); c != nil {
+		data["Cert"] = c
+	}
+	s.render(w, "record", "layout", data)
+}
+
+// pubkey is the key certificates are signed with, as one authorized_keys
+// line: what `ssh-keygen -Y verify` wants in its allowed-signers file.
+func (s *Server) pubkey(w http.ResponseWriter, r *http.Request) {
+	if s.Signer == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(sign.AuthorizedKey(s.Signer.Key.Public().(ed25519.PublicKey)) + "\n"))
 }
 
 func (s *Server) file(w http.ResponseWriter, r *http.Request) {
