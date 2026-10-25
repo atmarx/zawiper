@@ -126,7 +126,7 @@ func (s *Store) save(r *Record, raw map[string][]byte) error {
 	r.Schema = Schema
 	r.ID = RecordID(r.Started, r.Kind)
 	dir := filepath.Join(s.drives(), DirName(r.Serial), r.ID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
 	js, err := json.MarshalIndent(r, "", "  ")
@@ -243,9 +243,11 @@ func (s *Store) Path(serial, id, file string) string {
 	return filepath.Join(s.drives(), serial, id, file)
 }
 
+// Files and folders are made 0666/0777 and left to the umask.  A bay's disk
+// side runs with UMask=0007 and Group=zawiper, so its link can drain the spool.
 func writeAtomic(path string, b []byte) error {
 	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}

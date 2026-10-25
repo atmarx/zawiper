@@ -21,7 +21,7 @@ func (s *Store) Ingest(serial, id string, files map[string][]byte) error {
 		return err
 	}
 	dir := filepath.Join(s.drives(), serial, id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o777); err != nil {
 		return err
 	}
 	for name, b := range files {

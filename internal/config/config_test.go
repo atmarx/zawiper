@@ -105,12 +105,3 @@ func TestLoadBays(t *testing.T) {
 		t.Fatalf("two bays on one port: %v", err)
 	}
 }
-
-func TestPhase1Read(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "bay.toml")
-	os.WriteFile(p, []byte("name = \"the bay\"\nport = \"10-1\"          # the caddy\nsmart_type = \"sat\"\n"), 0o644)
-	cfg, err := Read(p)
-	if err != nil || cfg["port"] != "10-1" || cfg["name"] != "the bay" {
-		t.Fatalf("%v %v", cfg, err)
-	}
-}

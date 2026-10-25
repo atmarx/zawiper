@@ -269,30 +269,3 @@ func parseValue(s string) (value, error) {
 	}
 	return v, nil
 }
-
-// Read is the Phase 1 reader for /etc/zawiper/bay.toml, kept so the Phase 1
-// bayd still builds until it moves to LoadBay.
-//
-// Deprecated: use LoadBay.
-func Read(path string) (map[string]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	kv, err := parse(path, f)
-	if err != nil {
-		return nil, err
-	}
-	cfg := map[string]string{}
-	for k, v := range kv {
-		cfg[k] = v.s
-	}
-	if cfg["port"] == "" {
-		return nil, fmt.Errorf("%s: no port", path)
-	}
-	if cfg["name"] == "" {
-		cfg["name"] = "the bay"
-	}
-	return cfg, nil
-}

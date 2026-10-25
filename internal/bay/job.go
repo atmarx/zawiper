@@ -94,6 +94,8 @@ func (b *Bay) Wipe(serial string, session time.Time) error {
 func (b *Bay) mayWipe(serial string, session time.Time) error {
 	s := b.snap
 	switch {
+	case b.ReadOnly:
+		return errors.New("This bay isn't set up to wipe.  Its config would need caps = \"wipe\".")
 	case s.State == model.Running:
 		return errors.New("This bay is already running a job.  One at a time: wait for it to end.")
 	case held(s.State):
@@ -678,11 +680,11 @@ func partial(j *model.Job, block int64) *wipe.Result {
 }
 
 func writeAtomic(path string, b []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}

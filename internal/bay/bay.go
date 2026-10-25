@@ -31,6 +31,9 @@ type Bay struct {
 	StatePath      string
 	Spool          *Spool
 	Host, Software string
+	// ReadOnly is a bay whose config doesn't grant "wipe": it reads and
+	// files records, and refuses every job.
+	ReadOnly bool
 	// Direct opens the drive with O_DIRECT.  Off only in dev mode and
 	// tests, where the drive is a file.
 	Direct bool
@@ -213,7 +216,7 @@ func (s *Spool) file(r *records.Record, save func(*records.Store) error) error {
 	serial := records.DirName(r.Serial)
 	from := filepath.Join(stage.Root, "drives", serial, r.ID)
 	to := filepath.Join(s.Root, "drives", serial, r.ID)
-	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(to), 0o777); err != nil {
 		return err
 	}
 	// A re-read of the same insertion files under the same ID.  Rename

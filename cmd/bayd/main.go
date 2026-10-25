@@ -63,30 +63,38 @@ func main() {
 		run = filepath.Join(filepath.Dir(abs), "zawiper-"+*name)
 		lib = run
 	}
-	or(cfgPath, "/etc/zawiper/bays/"+*name+".toml")
+	or(cfgPath, config.BayPath(*name))
 	or(socket, filepath.Join(run, "bayd.sock"))
 	or(statePath, filepath.Join(lib, "job.json"))
 	or(spool, filepath.Join(lib, "spool"))
 
 	var src bay.Source
+	readOnly := false
 	if dev {
 		if *devBlock <= 0 || *devBlock%512 != 0 {
 			log.Fatalf("-dev-block %d: want a positive whole number of 512-byte sectors.", *devBlock)
 		}
 		src = &bay.Dev{File: *devBay, Smart: *devSmart}
 	} else {
-		cfg, err := config.Read(*cfgPath)
+		cfg, err := config.LoadBay(*cfgPath)
 		if err != nil {
 			log.Fatalf("config: %v (run `bayd ports` to find the bay's port)", err)
 		}
-		src = &bay.Sys{Port: cfg["port"], SmartType: cfg["smart_type"]}
+		if cfg.Name != *name {
+			log.Fatalf("%s names bay %q, not %q.", *cfgPath, cfg.Name, *name)
+		}
+		sys, err := bay.NewSys(cfg)
+		if err != nil {
+			log.Fatalf("config: %v", err)
+		}
+		src, readOnly = sys, !cfg.Can("wipe")
 	}
 
 	host, _ := os.Hostname()
 	software := fmt.Sprintf("bayd %s (%s)", version, commit)
 	sp := &bay.Spool{Root: *spool}
 	b := &bay.Bay{Name: *name, Src: src, StatePath: *statePath, Spool: sp,
-		Host: host, Software: software, Direct: !dev}
+		Host: host, Software: software, Direct: !dev, ReadOnly: readOnly}
 	if dev {
 		b.Block = *devBlock
 	}
@@ -158,5 +166,5 @@ func ports() {
 		fmt.Println("No USB block devices.  Is the caddy passed through, with a drive in it?")
 		return
 	}
-	fmt.Println("\nWrite /etc/zawiper/bays/<bay>.toml with the bay's port, e.g.:\n  port = \"10-1\"\n  smart_type = \"sat\"")
+	fmt.Println("\nWrite /etc/zawiper/bays/<bay>.toml with the bay's port, e.g.:\n  name = \"bay1\"\n  usb_port = \"10-1\"\n  caps = \"wipe\"")
 }
