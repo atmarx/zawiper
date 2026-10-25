@@ -59,6 +59,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 | What it's for | Mostly wiping drives for sale.  The buyer wants a blank drive, a certificate of deletion, and that drive's health.  Wipe + Load is the gift case. |
 | Many bays | One web interface, many bays, like OSDs in Ceph.  Each bay checks in and can take disks.  One hub (`zaweb` plus the records) talks to all of them.  A drive's history follows its identity, not the dock it was in (§8). |
 | Scope | A USB-SATA dock, a USB-SAS adapter, and a port on a SAS card all work the same way.  Each bay's service is scoped to one device, by USB port or hardware ID.  What's in its config is what it can touch, and nothing else. |
+| Who it's for | Two deployments of one codebase.  The homelab: one operator, no login, drives for sale.  **the reference institution**: the institutional reference deployment.  That means OIDC sign-in (Keycloak), operator and viewer roles, custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records.  The code stays brand-free; each deployment's identity, roles and certificate letterhead live in its own config. |
 | Load payload | The hub serves staging, and `bayd` pulls it over plain HTTP with range requests.  No tusd, and no NAS mount on dock hosts.  Sending a loadout over the network twice is fine. |
 
 ## 3. Hardware: the facts (Val, Phase 0)
