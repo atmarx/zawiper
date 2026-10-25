@@ -38,8 +38,9 @@ type Info struct {
 	WWN           string `json:"wwn,omitempty"`
 	Firmware      string `json:"firmware,omitempty"`
 	CapacityBytes int64  `json:"capacity_bytes"`
-	RotationRate  int    `json:"rotation_rate"` // 0 is solid state
-	Passed        *bool  `json:"passed"`        // nil when the drive didn't say
+	Protocol      string `json:"protocol,omitempty"` // ATA, SCSI or NVMe, as smartctl talked to it
+	RotationRate  int    `json:"rotation_rate"`      // 0 is solid state
+	Passed        *bool  `json:"passed"`             // nil when the drive didn't say
 	PowerOnHours  int    `json:"power_on_hours"`
 	PowerCycles   int    `json:"power_cycles"`
 	TempC         int    `json:"temp_c"`
@@ -55,8 +56,11 @@ type rawJSON struct {
 		Version    []int `json:"version"`
 		ExitStatus int   `json:"exit_status"`
 	} `json:"smartctl"`
-	ModelFamily  string `json:"model_family"`
-	ModelName    string `json:"model_name"`
+	ModelFamily string `json:"model_family"`
+	ModelName   string `json:"model_name"`
+	Device      struct {
+		Protocol string `json:"protocol"`
+	} `json:"device"`
 	SerialNumber string `json:"serial_number"`
 	WWN          *struct {
 		NAA int   `json:"naa"`
@@ -116,6 +120,7 @@ func Parse(b []byte) (*Info, error) {
 	i := &Info{
 		Model:         strings.TrimSpace(r.ModelName),
 		Family:        r.ModelFamily,
+		Protocol:      r.Device.Protocol,
 		Serial:        serial,
 		Firmware:      r.FirmwareVersion,
 		CapacityBytes: r.UserCapacity.Bytes,

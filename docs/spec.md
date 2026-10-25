@@ -41,7 +41,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
   - **Every sanitization is verified,** and every certificate names the level, the technique, and the standard clause.
   - **Flash only ever gets firmware sanitize.**  An overwrite proves nothing on an SSD.
   - We never claim Purge when the command wasn't available or didn't get through the bridge.
-  - 9VPAX9NA (ATA8-ACS, which predates SANITIZE) offers only ATA Security Erase.  Whether that counts as Purge under IEEE 2883, and whether the USB bridge passes it, are both open (§11).
+  - 9VPAX9NA (ATA8-ACS, which predates SANITIZE) offers only ATA Security Erase.  IEEE 2883 counts it as Purge in Enhanced Erase mode (§8.4.3.2.1) and as Clear in Normal mode (§8.4.2.3), and recommends neither without the manufacturer confirming the model's implementation.  Whether the USB bridge passes it is open (§11).
 
 ## 2. Decisions (xram, 2026-10-23 and 24)
 
@@ -323,8 +323,12 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - **The CA:** an offline root made with the `step` CLI, with no step-ca server.  The root key stays with the DR keys.  The hub gets a server certificate, and each bay a one-year client certificate.  Val mints them once the bay names are settled.
   - **Deploys:** the Woodpecker lane covers the hub.  `bayd` ships by fleet play (§8).
   - Dock hosts need no NFS export.
-- **NIST 800-88 Rev. 2 / IEEE 2883:** get IEEE 2883-2022.  It's paywalled, and its per-interface technique table is the spec for Purge.  Then:
-  - Map each bay type to the sanitize commands it actually passes through.
+- **NIST 800-88 Rev. 2 / IEEE 2883:** xram has a copy of IEEE 2883-2022 (2026-10-25; kept out of the repo, it's copyrighted).  What it settles:
+  - **Clear for ATA (§8.4.2.2)** first resets anything that keeps sectors from the host: HPA, DCO, Accessible Max Address, zone activation, depopulation, TCG locking ranges.  Then it writes every block up to the native maximum.  "Multiple passes or more complex values can be used", so a keystream qualifies.  The bay now checks HPA and DCO with `hdparm` and refuses a drive that hides sectors.  A record without that check claims no level, which includes the Phase 1 wipe of 9VPAX9NA.
+  - **Clear for SCSI (§8.4.2.4)** resets the MODE block descriptor's block count first.  That isn't checked yet, so SAS drives claim no level until it is.
+  - **Purge for ATA (§8.4.3.2)** is crypto scramble, BLOCK ERASE EXT, OVERWRITE EXT, or Security Erase Unit in Enhanced mode.  **Purge for SCSI (§8.4.3.3)** is SANITIZE only; FORMAT UNIT is Clear.
+  - **Verification (§7):** for Clear, sampling is enough (§7.3: at least 5% at random, or two random blocks in each of 10,000 sections plus the first and last).  For Purge, full verification (§7.2).  Our full read-back covers both.  zverify's default now samples per §7.3.
+  - **Still open:** map each bay type to the sanitize commands it actually passes through.  The Accessible Max Address, zone and depopulation checks for newer drives.
   - Test ATA Security Erase through the ASMedia bridge on a drive we can afford to brick.  A failed erase can leave the drive locked with the temporary password.
 - **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.  xram has a PCIe RAID card to try.  It qualifies only if it runs as a plain HBA (IT firmware, or a mode that loads `mpt3sas`/`mpt2sas`, not `megaraid_sas`).  It can go straight into a host or be passed through to a VM.
   - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.

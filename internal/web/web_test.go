@@ -4,10 +4,10 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
-	"io"
 	"context"
 	"errors"
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -117,7 +117,7 @@ func setup(t *testing.T) (*fakeFleet, http.Handler, *model.Drive) {
 	drv := &model.Drive{
 		Dev: "/dev/sdc", Size: info.CapacityBytes, LogicalSector: 512, PhysicalSector: 512, ReadOnly: true,
 		Bridge: model.Bridge{VendorID: "174c", ProductID: "1156", Manufacturer: "ASMedia"},
-		SMART:  info, Health: smart.Assess(info),
+		SMART:  info, Health: smart.Assess(info), Capacity: &model.Capacity{Method: "hdparm -N; no DCO", Visible: info.CapacityBytes / 512, Native: info.CapacityBytes / 512},
 		Table: model.Table{Type: "gpt", Parts: []model.Part{
 			{Path: "/dev/sdc1", Size: 500e9, FSType: "ext4", Label: "backup-gamma", Used: 312e9, Backup: `labelled "backup-gamma"`},
 			{Path: "/dev/sdc2", Size: 500e9, FSType: "ntfs", Used: -1, Peek: "couldn't mount it read-only"},
@@ -655,7 +655,7 @@ func signedWipe(t *testing.T) (*records.Store, *records.Record, *records.Seal) {
 	info, _ := smart.Parse(js)
 	t0 := time.Date(2026, 10, 24, 8, 15, 40, 0, time.UTC)
 	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(5 * time.Hour), Host: "dock-host", Bay: "bay1", Software: "bayd 0.2.0 (ddc40cb)",
-		Drive: model.Drive{Size: info.CapacityBytes, LogicalSector: 512, PhysicalSector: 512, SMART: info,
+		Drive: model.Drive{Size: info.CapacityBytes, LogicalSector: 512, PhysicalSector: 512, SMART: info, Capacity: &model.Capacity{Method: "hdparm -N; no DCO", Visible: info.CapacityBytes / 512, Native: info.CapacityBytes / 512},
 			Bridge: model.Bridge{VendorID: "174c", ProductID: "1156", Manufacturer: "ASMedia"}},
 		Health: smart.Assess(info)}
 	w := wipeRecord(rec, info)

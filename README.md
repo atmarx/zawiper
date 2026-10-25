@@ -47,7 +47,7 @@ After that, CI does it: `.woodpecker/zawiper.yml` runs vet and test on every pus
 
 Bays never ship through CI (spec §8).  They go out by the fleet play, or by hand with `make bay HOST=<host>`, which builds the bundle (`bin/zawiper-bay-*.tar.gz`: bayd, bayd-link, bayrules, the units, `install-bay.sh`), copies it over, and runs the installer under your own sudo.
 
-The host needs `smartmontools` and `util-linux` (blkid, blockdev, unshare, mount), and systemd with udev.
+The host needs `smartmontools`, `hdparm` (the HPA and DCO check, IEEE 2883 §8.4.2.2) and `util-linux` (blkid, blockdev, unshare, mount), and systemd with udev.
 
 ### Provision a bay
 

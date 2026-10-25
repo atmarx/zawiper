@@ -22,6 +22,7 @@ type fake struct {
 	table  model.Table
 	peeked []string
 	ro     bool
+	cap    *model.Capacity
 }
 
 func (f *fake) Devices() ([]Device, error)                         { return f.devs, nil }
@@ -35,6 +36,7 @@ func (f *fake) Eject(Device) error                                 { f.devs = ni
 func (f *fake) SMART(context.Context, Device) ([]byte, []byte, error) {
 	return f.smart, []byte("text"), nil
 }
+func (f *fake) Capacity(context.Context, Device, string) *model.Capacity { return f.cap }
 func (f *fake) Peek(_ context.Context, p *model.Part) {
 	f.peeked = append(f.peeked, p.Path)
 	p.Used = 312e9
@@ -78,6 +80,9 @@ func TestReadRefusals(t *testing.T) {
 		"no smart":   {func(f *fake) { f.smart = []byte(`{"smartctl":{"exit_status":2}}`) }, "SMART can't be read", true},
 		// Val saw slot 0 report 4.14 GB for two different drives.
 		"placeholder size": {func(f *fake) { f.devs[0].Size = 4140000000 }, "placeholder", true},
+		"HPA": {func(f *fake) {
+			f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
+		}, "keeps 2,048 sectors (1.05 MB) from the host", true},
 	}
 	for name, c := range cases {
 		f := drive(t)

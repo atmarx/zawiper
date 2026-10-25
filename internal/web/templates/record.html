@@ -232,7 +232,7 @@
 {{if not .San.Level}}
 <p class="fine">There's no clean, whole-drive wipe here to check the drive against.  The record above says why.</p>
 {{else if .Check}}
-<p class="cmd-label">The drive, with zverify (100 random 1 MiB samples; <code>-full</code> for every byte):</p>
+<p class="cmd-label">The drive, with zverify (two blocks in each ten-thousandth of the drive, as IEEE 2883 §7.3 suggests; <code>-full</code> for every byte):</p>
 <pre class="cmd">{{.Zverify}}</pre>
 <p class="cmd-label">Every byte, with nothing but OpenSSL and cmp:</p>
 <pre class="cmd">{{.Check}}</pre>

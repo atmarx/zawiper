@@ -25,7 +25,8 @@ func record(t *testing.T, started time.Time) *Record {
 	return &Record{
 		Serial: info.Serial, Started: started, Finished: started.Add(5 * time.Second),
 		Host: "dock-host", Bay: "the bay", Software: "test",
-		Drive:  model.Drive{Size: info.CapacityBytes, SMART: info, Table: model.Table{Parts: []model.Part{}}},
+		Drive: model.Drive{Size: info.CapacityBytes, SMART: info, Table: model.Table{Parts: []model.Part{}},
+			Capacity: &model.Capacity{Method: "hdparm -N; no DCO", Visible: info.CapacityBytes / 512, Native: info.CapacityBytes / 512}},
 		Health: smart.Assess(info),
 	}
 }
@@ -166,7 +167,8 @@ func TestSanitize(t *testing.T) {
 			Key: strings.Repeat("ab", 32), IV: strings.Repeat("cd", 16)}
 		return r
 	}
-	if s := Sanitize(clean()); s.Level != "Clear" || s.Why != "" || !strings.Contains(s.Standard, "NIST SP 800-88 Rev. 2") {
+	if s := Sanitize(clean()); s.Level != "Clear" || s.Why != "" || !strings.Contains(s.Standard, "NIST SP 800-88 Rev. 2") ||
+		!strings.Contains(s.Standard, "§8.4.2.2") || !strings.Contains(s.Technique, "No HPA or DCO") {
 		t.Errorf("clean wipe: %+v", s)
 	}
 	cases := map[string]func(*Record){
@@ -177,6 +179,9 @@ func TestSanitize(t *testing.T) {
 		"flash":      func(r *Record) { r.Drive.SMART.RotationRate = 0 },
 		"no SMART":   func(r *Record) { r.Drive.SMART = nil },
 		"inspection": func(r *Record) { r.Wipe = nil },
+		"HPA":        func(r *Record) { r.Drive.Capacity.Visible -= 1 << 20 },
+		"unchecked":  func(r *Record) { r.Drive.Capacity = &model.Capacity{Note: "hdparm -N couldn't read it"} },
+		"no check":   func(r *Record) { r.Drive.Capacity = nil },
 	}
 	for name, mod := range cases {
 		r := clean()

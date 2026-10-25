@@ -390,7 +390,7 @@ type Sanitization struct {
 
 // StandardClear names what a Clear certificate follows.  Rev. 2 leaves the
 // techniques themselves to IEEE 2883.
-const StandardClear = "NIST SP 800-88 Rev. 2, Guidelines for Media Sanitization (September 2025), at the Clear level.  Technique from IEEE Std 2883-2022, IEEE Standard for Sanitizing Storage."
+const StandardClear = "NIST SP 800-88 Rev. 2, Guidelines for Media Sanitization (September 2025), at the Clear level.  Technique from IEEE Std 2883-2022, IEEE Standard for Sanitizing Storage: §8.4.2.2, Clear for ATA, and §7.2, full verification."
 
 // Sanitize reads the claim a record supports, and nothing more.
 func Sanitize(r *Record) Sanitization {
@@ -401,12 +401,16 @@ func Sanitize(r *Record) Sanitization {
 	s := Sanitization{
 		Standard:  StandardClear,
 		Technique: fmt.Sprintf("Overwrite.  One pass of an AES-256-CTR keystream over all %s bytes a host can address, from the first to the last.", Commas(x.Size)),
-		Verify:    "Full verification.  The keystream was regenerated from its key, and every byte was read back from the drive and compared.",
+		Verify:    "Full verification (IEEE 2883 §7.2).  The keystream was regenerated from its key, and every byte was read back from the drive and compared.",
 		Result:    fmt.Sprintf("%s of %s bytes read back as written.", Commas(x.Checked), Commas(x.Size)),
 		Limits:    "An overwrite reaches every sector a host can address.  It can't reach sectors the drive has retired and remapped; that takes Purge, the drive's own sanitize command.",
 	}
 	if x.Bad > 0 {
 		s.Result += fmt.Sprintf("  %s bytes didn't.", Commas(x.Bad))
+	}
+	c := r.Drive.Capacity
+	if c.Checked() && c.Hidden() == 0 {
+		s.Technique += fmt.Sprintf("  No HPA or DCO keeps any sectors from the host (%s: %s of %s).", c.Method, Commas(c.Visible), Commas(c.Native))
 	}
 	if r.Drive.SMART != nil {
 		if a, ok := r.Drive.SMART.Attr(5); ok {
@@ -426,6 +430,12 @@ func Sanitize(r *Record) Sanitization {
 		s.Why = "The drive's type couldn't be read, so no level can be claimed for it."
 	case r.Drive.SMART.RotationRate == 0:
 		s.Why = "This is a solid-state drive.  An overwrite proves nothing on flash, where the controller keeps cells a host can't address.  Flash needs the drive's own sanitize command."
+	case c == nil:
+		s.Why = "This record doesn't say whether the drive keeps sectors from the host behind an HPA or DCO.  IEEE 2883 §8.4.2.2 needs those out of the way before an overwrite counts as Clear."
+	case !c.Checked():
+		s.Why = "Za Wiper couldn't check whether the drive keeps sectors from the host behind an HPA or DCO, which IEEE 2883 §8.4.2.2 needs out of the way before an overwrite counts as Clear.  " + c.Note
+	case c.Hidden() > 0:
+		s.Why = fmt.Sprintf("The drive keeps %s sectors from the host behind an HPA or DCO, and the overwrite didn't reach them.", Commas(c.Hidden()))
 	default:
 		s.Level = "Clear"
 	}
@@ -669,7 +679,7 @@ func checkSection(w func(string, ...any), r *Record, seal *Seal) {
 		w("| IV | `%s` |\n", x.IV)
 		w("| Length | %s bytes |\n\n", Commas(x.Size))
 		w("Every byte, with OpenSSL and cmp, for as long as reading the whole drive takes:\n\n    %s\n\n", c.Check)
-		w("With zverify, which also checks the record and its signature.  It reads 100 random 1 MiB samples; add `-full` for every byte:\n\n    %s\n\n", c.Zverify)
+		w("With zverify, which also checks the record and its signature.  It reads two random blocks from each ten-thousandth of the drive, as IEEE 2883 §7.3 suggests; add `-full` for every byte:\n\n    %s\n\n", c.Zverify)
 		w("Anything written to the drive since the wipe, even a partition table, won't match.\n\n")
 	}
 	w("### Signature\n\n")

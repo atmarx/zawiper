@@ -3,6 +3,7 @@ package bay
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -305,6 +306,41 @@ func (s *Sys) SMART(ctx context.Context, d Device) ([]byte, []byte, error) {
 	}
 	text, _, err := runAnyExit(ctx, "smartctl", "-d", typ, "-x", d.Path)
 	return js, text, err
+}
+
+var (
+	maxSectors  = regexp.MustCompile(`max sectors\s*=\s*(\d+)/(\d+)`)
+	realSectors = regexp.MustCompile(`Real max sectors:\s*(\d+)`)
+)
+
+// Capacity asks an ATA drive, through hdparm, whether an HPA or a DCO
+// keeps sectors from the host.  Both are read-only queries.
+func (s *Sys) Capacity(ctx context.Context, d Device, protocol string) *model.Capacity {
+	if protocol != "ATA" {
+		return &model.Capacity{Note: fmt.Sprintf("Za Wiper checks only ATA drives for hidden sectors so far, and this one speaks %s.", cmp.Or(protocol, "an unknown protocol"))}
+	}
+	c := &model.Capacity{Method: "hdparm -N"}
+	out, _, err := run(ctx, "hdparm", "-N", d.Path)
+	m := maxSectors.FindSubmatch(out)
+	if err != nil || m == nil {
+		c.Note = fmt.Sprintf("hdparm -N couldn't read the drive's native size through this bridge: %v %s", err, bytes.TrimSpace(out))
+		return c
+	}
+	c.Visible, _ = strconv.ParseInt(string(m[1]), 10, 64)
+	c.Native, _ = strconv.ParseInt(string(m[2]), 10, 64)
+	// A drive without the DCO feature set refuses the query.  hdparm -N
+	// just got through, so the bridge passes ATA commands, and a refusal
+	// here is the drive's answer.
+	out, _, err = run(ctx, "hdparm", "--dco-identify", d.Path)
+	if m := realSectors.FindSubmatch(out); err == nil && m != nil {
+		c.Method += ", hdparm --dco-identify"
+		if real, _ := strconv.ParseInt(string(m[1]), 10, 64); real > c.Native {
+			c.Native = real
+		}
+	} else {
+		c.Method += "; no DCO"
+	}
+	return c
 }
 
 func (s *Sys) Table(ctx context.Context, d Device) (model.Table, error) {

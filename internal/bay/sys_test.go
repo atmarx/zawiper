@@ -228,3 +228,40 @@ func TestOpenable(t *testing.T) {
 		}
 	}
 }
+
+// fakeHdparm puts an hdparm on PATH that prints what a drive would.
+func fakeHdparm(t *testing.T, n, dco string) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncase \"$1\" in\n-N) " + n + " ;;\n--dco-identify) " + dco + " ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(dir, "hdparm"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestCapacity(t *testing.T) {
+	ctx, d, s := context.Background(), Device{Path: "/dev/sdc"}, &Sys{}
+	const whole = `printf '\\n/dev/sdc:\\n max sectors   = 1953525168/1953525168, HPA is disabled\\n'`
+	const noDCO = `echo 'SG_IO: bad/missing sense data' >&2; exit 5`
+
+	fakeHdparm(t, whole, noDCO)
+	if c := s.Capacity(ctx, d, "ATA"); !c.Checked() || c.Hidden() != 0 || c.Method != "hdparm -N; no DCO" {
+		t.Errorf("whole drive: %+v", c)
+	}
+	fakeHdparm(t, `echo ' max sectors   = 1953000000/1953525168, HPA is enabled'`, noDCO)
+	if c := s.Capacity(ctx, d, "ATA"); !c.Checked() || c.Hidden() != 525168 {
+		t.Errorf("HPA: %+v", c)
+	}
+	fakeHdparm(t, whole, `printf 'DCO Revision: 0x0001\\nReal max sectors: 1953525200\\n'`)
+	if c := s.Capacity(ctx, d, "ATA"); !c.Checked() || c.Hidden() != 32 || !strings.Contains(c.Method, "dco-identify") {
+		t.Errorf("DCO: %+v", c)
+	}
+	fakeHdparm(t, `echo 'SG_IO: questionable sense data' >&2; exit 5`, noDCO)
+	if c := s.Capacity(ctx, d, "ATA"); c.Checked() || !strings.Contains(c.Note, "hdparm -N couldn't") {
+		t.Errorf("bridge refused: %+v", c)
+	}
+	if c := s.Capacity(ctx, d, "SCSI"); c.Checked() || !strings.Contains(c.Note, "speaks SCSI") {
+		t.Errorf("SAS: %+v", c)
+	}
+}

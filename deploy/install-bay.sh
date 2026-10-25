@@ -33,7 +33,7 @@ for f in bin/bayd bin/bayd-link bin/bayrules deploy/systemd/bayd@.service \
     [[ -f "$f" ]] || die "no $f here.  Run me from an unpacked bundle (make bundle)."
 done
 # What bayd's read runs, and what this script needs.
-for c in smartctl blkid blockdev unshare mount df systemctl udevadm systemd-sysusers; do
+for c in smartctl hdparm blkid blockdev unshare mount df systemctl udevadm systemd-sysusers; do
     command -v "$c" >/dev/null || die "this host has no $c"
 done
 

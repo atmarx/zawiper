@@ -56,6 +56,12 @@ type bounded interface {
 	Bounds() (min, max int64)
 }
 
+// capacity is a Source that can ask a drive whether it keeps sectors from
+// the host.  Optional, so fakes needn't.
+type capacity interface {
+	Capacity(ctx context.Context, d Device, protocol string) *model.Capacity
+}
+
 func bounds(src Source) (int64, int64) {
 	if b, ok := src.(bounded); ok {
 		return b.Bounds()
@@ -112,6 +118,13 @@ func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
 	default:
 		drv.SMART = info
 		drv.Health = smart.Assess(info)
+		if c, ok := src.(capacity); ok {
+			drv.Capacity = c.Capacity(ctx, d, info.Protocol)
+			if drv.Capacity.Checked() && drv.Capacity.Hidden() > 0 {
+				refuse("The drive keeps %s sectors (%s) from the host behind an HPA or DCO.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p%d` (and `hdparm --dco-restore` for a DCO), power-cycle the drive, and re-read.",
+					records.Commas(drv.Capacity.Hidden()), records.Size(drv.Capacity.Hidden()*512), drv.Capacity.Native)
+			}
+		}
 		if info.CapacityBytes != d.Size {
 			refuse("The bridge says %s but the drive says %s.  The bay's slot 0 has reported placeholder sizes before.  Reseat the drive and re-read.",
 				records.Size(d.Size), records.Size(info.CapacityBytes))

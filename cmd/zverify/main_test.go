@@ -254,3 +254,31 @@ func TestSampleSpans(t *testing.T) {
 		t.Errorf("tiny drive: %v", s)
 	}
 }
+
+// The default sample is IEEE 2883 §7.3's: two distinct blocks in each of
+// 10,000 equal sections, plus the first and the last.
+func TestStratifiedSpans(t *testing.T) {
+	const size = 1_000_204_886_016
+	s := stratifiedSpans(size)
+	if len(s) < 2*sections || len(s) > 2*sections+2 || s[0] != [2]int64{0, block} || s[len(s)-1] != [2]int64{size - block, block} {
+		t.Fatalf("%d spans, first %v, last %v", len(s), s[0], s[len(s)-1])
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i][0] <= s[i-1][0] {
+			t.Fatalf("spans out of order or repeated at %d", i)
+		}
+	}
+	blocks, j := int64(size/block), 0
+	for i := int64(0); i < sections; i++ {
+		lo, hi := blocks*i/sections*block, blocks*(i+1)/sections*block
+		n := 0
+		for ; j < len(s) && s[j][0] < hi; j++ {
+			if s[j][0] >= lo {
+				n++
+			}
+		}
+		if n < 2 {
+			t.Fatalf("section %d has %d blocks", i, n)
+		}
+	}
+}

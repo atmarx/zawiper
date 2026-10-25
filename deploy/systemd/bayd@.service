@@ -56,7 +56,7 @@ IPAddressDeny=any
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 
 # Hardening.  Phase 1's three, plus what the read and the wipe can live
-# without.  What they need: smartctl and blkid on the bay's nodes (SG_IO
+# without.  What they need: smartctl, hdparm and blkid on the bay's nodes (SG_IO
 # pass-through wants CAP_SYS_RAWIO, so that stays); blockdev's ioctls;
 # unshare and mount for the peek (CAP_SYS_ADMIN, a mount namespace, a
 # mount point in the runtime directory); and eject may want to write under

@@ -111,7 +111,25 @@ type Drive struct {
 	Health         smart.Health `json:"health"`
 	Table          Table        `json:"table"`
 	ReadOnly       bool         `json:"read_only"` // the kernel's ro flag is set
+	Capacity       *Capacity    `json:"capacity,omitempty"`
 }
+
+// Capacity is whether the drive keeps sectors from the host.  IEEE 2883
+// §8.4.2.2 a) wants a host protected area (HPA) or a device configuration
+// overlay (DCO) out of the way before an overwrite of an ATA drive counts
+// as Clear.  Sectors are 512 bytes, as hdparm counts them.
+type Capacity struct {
+	Method  string `json:"method"`            // how it was checked
+	Visible int64  `json:"visible,omitempty"` // sectors the host can address
+	Native  int64  `json:"native,omitempty"`  // sectors the drive has, past any HPA or DCO
+	Note    string `json:"note,omitempty"`    // why it couldn't be checked, when it couldn't
+}
+
+// Checked says the drive answered.
+func (c *Capacity) Checked() bool { return c != nil && c.Note == "" && c.Native > 0 && c.Visible > 0 }
+
+// Hidden is how many sectors the host can't reach.
+func (c *Capacity) Hidden() int64 { return c.Native - c.Visible }
 
 func (d *Drive) Serial() string {
 	if d == nil || d.SMART == nil {

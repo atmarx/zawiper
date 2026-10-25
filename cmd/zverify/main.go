@@ -7,8 +7,10 @@
 //	zverify -pubkey https://…/za-wiper.pub https://…/record.json /dev/sdX
 //	zverify -no-sig -full record.json /dev/sdX
 //
-// By default it reads 100 random 1 MiB samples, always including the first
-// and last MiB.  -full reads every byte, which takes as long as reading the
+// By default it samples the way IEEE 2883-2022 §7.3 suggests: the drive cut
+// into 10,000 equal sections, two random 4 KiB blocks read from each, plus
+// the first and last.  -sample N reads N random 1 MiB samples instead.
+// -full reads every byte, which takes as long as reading the
 // whole drive.  It exits 0 when everything matches, 1 when something
 // doesn't, and 2 when it couldn't check at all.
 package main
@@ -35,6 +37,10 @@ import (
 const (
 	mib    = 1 << 20
 	sector = 512
+	// sections is IEEE 2883 §7.3's suggested minimum number of subsections
+	// for a drive addressed by LBA.
+	sections = 10000
+	block    = 4096
 	// maxRanges is how many mismatched ranges get their own line.
 	maxRanges = 20
 )
@@ -49,7 +55,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	pubkey := fs.String("pubkey", "", "the public key you trust: a file or an https URL, from the certificate")
 	noSig := fs.Bool("no-sig", false, "don't check the signature (then anyone could have written the record)")
-	samples := fs.Int("sample", 100, "how many random 1 MiB samples to check, counting the first and last MiB")
+	samples := fs.Int("sample", 100, "check this many random 1 MiB samples, counting the first and last MiB, instead of IEEE 2883 §7.3 sampling")
 	full := fs.Bool("full", false, "check every byte instead of samples")
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "usage: zverify [-pubkey file|-no-sig] [-sample N | -full] record.json /dev/sdX")
@@ -82,7 +88,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	v := &verifier{out: stdout, errw: stderr}
-	return v.verify(fs.Arg(0), fs.Arg(1), *pubkey, *samples, *full)
+	return v.verify(fs.Arg(0), fs.Arg(1), *pubkey, *samples, *full, !set["sample"])
 }
 
 type verifier struct {
@@ -92,7 +98,7 @@ type verifier struct {
 func (v *verifier) say(f string, a ...any) { fmt.Fprintf(v.out, f+"\n", a...) }
 
 // verify returns the exit status.
-func (v *verifier) verify(recordSrc, dev, pubSrc string, samples int, full bool) int {
+func (v *verifier) verify(recordSrc, dev, pubSrc string, samples int, full, stratified bool) int {
 	js, err := load(recordSrc)
 	if err != nil {
 		fmt.Fprintf(v.errw, "Couldn't read the record: %v\n", err)
@@ -177,13 +183,17 @@ func (v *verifier) verify(recordSrc, dev, pubSrc string, samples int, full bool)
 	v.say("Device: %s holds %s bytes, the same as the record.", dev, records.Commas(size))
 
 	var spans [][2]int64 // offset, length
-	if !full && int64(samples)*mib >= size {
+	if !full && (stratified && size < 2*sections*block || !stratified && int64(samples)*mib >= size) {
 		v.say("The samples would cover the whole drive, so checking every byte instead.")
 		full = true
 	}
 	if full {
 		v.say("Checking every byte.  That takes as long as reading the whole drive.")
 		spans = [][2]int64{{0, size}}
+	} else if stratified {
+		spans = stratifiedSpans(size)
+		v.say("Checking %s blocks of 4 KiB as IEEE 2883 §7.3 suggests: two at random in each of %s equal sections, plus the first and the last.  -full checks every byte.",
+			records.Commas(int64(len(spans))), records.Commas(sections))
 	} else {
 		spans = sampleSpans(size, samples)
 		v.say("Checking %d samples of up to 1 MiB, including the first and the last.", len(spans))
@@ -194,6 +204,30 @@ func (v *verifier) verify(recordSrc, dev, pubSrc string, samples int, full bool)
 		return 2
 	}
 	return v.report(res, &r, spans, full)
+}
+
+// stratifiedSpans is IEEE 2883 §7.3's second option: the drive cut into
+// sections, two distinct random blocks from each, and the first and last
+// blocks.  The caller makes sure every section holds at least two blocks.
+func stratifiedSpans(size int64) [][2]int64 {
+	blocks := size / block
+	offs := []int64{0, size - block}
+	for i := int64(0); i < sections; i++ {
+		lo, hi := blocks*i/sections, blocks*(i+1)/sections
+		a := lo + rand.Int64N(hi-lo)
+		b := lo + rand.Int64N(hi-lo-1)
+		if b >= a {
+			b++
+		}
+		offs = append(offs, a*block, b*block)
+	}
+	slices.Sort(offs)
+	offs = slices.Compact(offs)
+	out := make([][2]int64, len(offs))
+	for i, o := range offs {
+		out[i] = [2]int64{o, block}
+	}
+	return out
 }
 
 // sampleSpans picks n spans of 1 MiB: the first, the last, and the rest at
