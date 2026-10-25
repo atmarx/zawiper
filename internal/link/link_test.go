@@ -256,19 +256,20 @@ func TestInterruptedFromStateFile(t *testing.T) {
 	if _, err := os.Stat(r.link.State); !os.IsNotExist(err) {
 		t.Error("the state file is still in place")
 	}
-	if acked, _ := filepath.Glob(filepath.Join(filepath.Dir(r.link.State), "job.acked-*.json")); len(acked) != 1 {
-		t.Errorf("archived %v", acked)
+	if recs, _ := filepath.Glob(filepath.Join(r.link.Spool, "drives", "9VPAX9NA", "*-wipe", "record.json")); len(recs) != 1 {
+		t.Errorf("the interrupted job's record isn't in the spool: %v", recs)
 	}
 	waitFor(t, "EMPTY", func() bool { return r.bay().Snap.State == model.Empty })
 
-	// A held ending is the disk side's to acknowledge.
+	// A drive pulled after DONE: its record is already filed, so the ack
+	// just clears the wall.
 	writeJob(t, r.link.State, model.Done)
 	waitFor(t, "DONE", func() bool { return r.bay().Snap.State == model.Done })
-	if _, err := r.hub.Call(ctx, key, proto.Request{Verb: proto.Ack}); err == nil {
-		t.Error("the link acknowledged a DONE job without the drive")
+	if s, err := r.hub.Call(ctx, key, proto.Request{Verb: proto.Ack}); err != nil || s.State != model.Empty {
+		t.Errorf("ack of DONE without the drive: %v %v", s, err)
 	}
-	if _, err := os.Stat(r.link.State); err != nil {
-		t.Errorf("the DONE state file moved: %v", err)
+	if _, err := os.Stat(r.link.State); !os.IsNotExist(err) {
+		t.Errorf("the DONE state file is still there: %v", err)
 	}
 }
 

@@ -465,6 +465,26 @@ func (b *Bay) Ack() error {
 	return nil
 }
 
+// AckAbsent acknowledges a held job when the disk side isn't running,
+// because the drive has left the bay.  The link calls it on a Bay that
+// carries only the state file, the spool and its names.  An interrupted job
+// gets its record, as Ack would file it; every other ending already has one.
+func (b *Bay) AckAbsent() error {
+	b.restore()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.init()
+	if !held(b.snap.State) {
+		return errors.New("There's nothing to acknowledge.")
+	}
+	if b.snap.State == model.Interrupted {
+		if err := b.saveInterrupted(); err != nil {
+			return fmt.Errorf("Couldn't file the record of the interrupted job (%v).  Nothing was cleared; acknowledge again once that's fixed.", err)
+		}
+	}
+	return b.clearState()
+}
+
 // Eject flushes the drive and lets it go.  From DONE it clears the job too;
 // the other endings want acknowledging first, so nobody misses them.
 func (b *Bay) Eject() error {

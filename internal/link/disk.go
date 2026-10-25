@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
-	"strings"
 	"syscall"
-	"time"
 
+	"zawiper/internal/bay"
 	"zawiper/internal/model"
 	"zawiper/internal/proto"
 )
@@ -114,22 +112,10 @@ func (l *Link) refuse(msg string) proto.Reply {
 	return proto.Reply{Error: msg, Snapshot: &s}
 }
 
-// archive acknowledges an interrupted job: the state file moves aside to
-// job.acked-<time>.json, and the bay reads empty.  The held endings (DONE,
-// FAILED, ALARM) are the disk side's to acknowledge, with the drive back in.
+// archive acknowledges a held job with the drive gone.  The disk side's own
+// code files an interrupted job's record into the spool and clears the state
+// file; a DONE, FAILED or ALARM job filed its record when it ended.
 func (l *Link) archive() error {
-	s := l.idle()
-	if s.State == model.Empty {
-		return fmt.Errorf("bay %s has nothing to acknowledge", l.Bay)
-	}
-	if s.State != model.Interrupted {
-		return fmt.Errorf("bay %s holds a %s job, and only its disk side can acknowledge that; put the drive back in", l.Bay, s.State)
-	}
-	base := strings.TrimSuffix(filepath.Base(l.State), ".json")
-	stamp := time.Now().UTC().Format("2006-01-02T15-04-05Z")
-	dst := filepath.Join(filepath.Dir(l.State), base+".acked-"+stamp+".json")
-	if err := os.Rename(l.State, dst); err != nil {
-		return fmt.Errorf("couldn't set the interrupted job aside: %w", err)
-	}
-	return nil
+	b := &bay.Bay{Name: l.Bay, Host: l.Host, Software: l.Version, StatePath: l.State, Spool: &bay.Spool{Root: l.Spool}}
+	return b.AckAbsent()
 }
