@@ -67,6 +67,9 @@ var Files = map[string]string{
 
 	"smart-before.json": "application/json",
 	"smart-before.txt":  "text/plain; charset=utf-8",
+
+	// The hub's SSHSIG over record.json (internal/sign).
+	"record.json.sig": "text/plain; charset=utf-8",
 }
 
 type Store struct{ Root string }

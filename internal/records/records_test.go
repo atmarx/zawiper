@@ -155,3 +155,80 @@ func TestSaveWipe(t *testing.T) {
 		t.Error("saved a file outside the whitelist")
 	}
 }
+
+// The certificate claims Clear only for a whole, clean overwrite of a
+// spinning disk, and never claims Purge.
+func TestSanitize(t *testing.T) {
+	clean := func() *Record {
+		r := record(t, time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC))
+		size := r.Drive.Size
+		r.Wipe = &wipe.Result{Size: size, Block: 1 << 30, Written: size, Checked: size, Cells: []wipe.Cell{{Write: 1, Read: 1}},
+			Key: strings.Repeat("ab", 32), IV: strings.Repeat("cd", 16)}
+		return r
+	}
+	if s := Sanitize(clean()); s.Level != "Clear" || s.Why != "" || !strings.Contains(s.Standard, "NIST SP 800-88 Rev. 2") {
+		t.Errorf("clean wipe: %+v", s)
+	}
+	cases := map[string]func(*Record){
+		"stopped":    func(r *Record) { r.Wipe.Aborted = "stopped during the verify pass" },
+		"bad bytes":  func(r *Record) { r.Wipe.Bad, r.Wipe.Checked = 512, r.Wipe.Checked-512 },
+		"short":      func(r *Record) { r.Wipe.Checked -= 4096 },
+		"wrong size": func(r *Record) { r.Drive.Size += 1 << 20 },
+		"flash":      func(r *Record) { r.Drive.SMART.RotationRate = 0 },
+		"no SMART":   func(r *Record) { r.Drive.SMART = nil },
+		"inspection": func(r *Record) { r.Wipe = nil },
+	}
+	for name, mod := range cases {
+		r := clean()
+		mod(r)
+		s := Sanitize(r)
+		if s.Level != "" || s.Why == "" {
+			t.Errorf("%s: claimed %q (%s)", name, s.Level, s.Why)
+		}
+		if c := NewCertificate(r, nil); c != nil && (c.ForSale || c.Verdict != "NOT FOR SALE") {
+			t.Errorf("%s: for sale", name)
+		}
+	}
+	for _, r := range []*Record{clean(), func() *Record { r := clean(); r.Wipe.Bad = 1; return r }()} {
+		s := Sanitize(r)
+		if strings.Contains(s.Level+s.Technique+s.Verify+s.Result, "Purge") {
+			t.Errorf("claims Purge: %+v", s)
+		}
+	}
+
+	r := clean()
+	md := Markdown(r)
+	for _, want := range []string{"## Certificate of sanitization", "| Level | **Clear** |", "### Health before and after",
+		"## Check it yourself", "| IV | `" + strings.Repeat("cd", 16) + "` |", "cmp -n 1000204886016 - /dev/sdX", "Not signed yet", "The key is published"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("record.md lacks %q", want)
+		}
+	}
+	if strings.Contains(md, "existed only in memory") {
+		t.Error("a published-key wipe says its key existed only in memory")
+	}
+	// The first real wipe kept its key in memory; its record says so.
+	r.Wipe.Key, r.Wipe.IV = "", ""
+	if md := Markdown(r); !strings.Contains(md, "existed only in memory") || !strings.Contains(md, "before Za Wiper published its keys") {
+		t.Error("an old wipe without a key")
+	}
+}
+
+func TestSurfaceSVG(t *testing.T) {
+	w := &wipe.Result{Block: 1 << 30, Cells: make([]wipe.Cell, 130)}
+	for i := range w.Cells {
+		w.Cells[i] = wipe.Cell{Write: 1, Read: 1}
+	}
+	w.Cells[70].Bad = 9
+	w.Cells[129].Read = 0
+	svg, legend := SurfaceSVG(w)
+	s := string(svg)
+	for _, want := range []string{`viewBox="0 0 64 3"`, `<rect class="m-v" x="0" y="0" width="64" height="1"/>`, `<rect class="m-b" x="6" y="1" width="1" height="1"/>`, `class="m-t"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("svg lacks %q", want)
+		}
+	}
+	if legend[0].Count != 128 || legend[2].Count != 1 || legend[3].Count != 1 {
+		t.Errorf("legend %+v", legend)
+	}
+}

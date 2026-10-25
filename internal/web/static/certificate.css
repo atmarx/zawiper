@@ -1,0 +1,212 @@
+/* The certificate of sanitization: a section on the record page, and the
+   sheet that's folded in quarters and taped to the drive's static bag.
+
+   The sheet is one US Letter page laid out as four quarters, each 4.25 by
+   5.5 inches.  Top left is the label, the quarter that faces out once it's
+   folded.  The other three are the certificate.  Every length on the sheet
+   is a multiple of --u: one inch on paper, and on screen whatever makes the
+   preview fit its column. */
+
+/* ---- On the record page ---- */
+
+.cert {
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-left-width: 6px;
+  padding: 1rem 1.25rem;
+  margin: 0 0 1.5rem;
+}
+.cert h2 { margin-top: 0; }
+.cert h3 {
+  font-size: .9rem; text-transform: uppercase; letter-spacing: .06em;
+  margin: 1.4em 0 .4em; color: var(--muted);
+}
+.cert-nfs { border-color: var(--red); }
+.nfs-line { color: var(--red); background: var(--red-bg); padding: .4rem .6rem; margin: .5rem 0; }
+
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: .2rem 1rem; margin: .5rem 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+table.health { width: auto; min-width: 60%; }
+table.health td.num, table.health th.num { text-align: right; font-family: var(--mono); }
+table.health tr.worse td { color: var(--red); background: var(--red-bg); font-weight: 600; }
+
+.cmd-label { margin: .9rem 0 .25rem; }
+.cmd {
+  font-family: var(--mono); font-size: .8rem; line-height: 1.4;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--ink);
+  padding: .5rem .75rem; margin: 0;
+}
+
+/* ---- The sheet, previewed on screen ---- */
+
+.sheet-preview { margin-top: 2.5rem; }
+.sheet-wrap { container-type: inline-size; }
+
+.sheet {
+  /* Paper is paper: the sheet keeps its own colours in dark mode. */
+  --p-paper: #fff;
+  --p-ink: #141414;
+  --p-muted: #555;
+  --p-rule: #bdbdbd;
+  --p-wash: #f3f3f0;
+  --p-ok: #17632a;
+  --p-ok-bg: #dcefd9;
+  --p-notes: #5c4300;
+  --p-notes-bg: #fbefc4;
+  --p-red: #c0161b;
+  --p-red-bg: #fde3e1;
+  /* DEFRAG, in the VGA palette. */
+  --vga-blue: #0000aa;
+  --vga-cyan: #55ffff;
+  --vga-yellow: #ffff55;
+  --vga-red: #ff5555;
+  --vga-dim: #5555ff;
+
+  --u: calc(100cqi / 8.5);
+  color-scheme: light;
+  width: calc(8.5 * var(--u));
+  height: calc(11 * var(--u));
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  background: var(--p-paper);
+  color: var(--p-ink);
+  font: calc(.105 * var(--u))/1.32 var(--sans);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .25), 0 10px 30px rgba(0, 0, 0, .15);
+  overflow: hidden;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.sheet * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+.q {
+  position: relative;
+  min-width: 0; min-height: 0;
+  overflow: hidden;
+  padding: calc(.32 * var(--u));
+  display: flex; flex-direction: column;
+}
+/* The fold lines. */
+.q-label { border-right: 1px dashed var(--p-rule); border-bottom: 1px dashed var(--p-rule); }
+.q-cert { border-bottom: 1px dashed var(--p-rule); }
+.q-map { border-right: 1px dashed var(--p-rule); }
+
+.sheet h2, .sheet h3 { color: var(--p-ink); text-transform: none; letter-spacing: 0; }
+.sheet .q-title { font-size: 1.55em; margin: 0 0 .35em; line-height: 1.15; }
+.sheet h3 {
+  font-size: .82em; text-transform: uppercase; letter-spacing: .1em;
+  margin: .9em 0 .3em; padding-bottom: .15em; border-bottom: 1.5px solid var(--p-ink);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.sheet h3:first-child, .sheet .nfs-band + h3 { margin-top: 0; }
+.sheet .muted { color: var(--p-muted); }
+.sheet .mono, .sheet code { font-family: var(--mono); }
+.sheet .strong { font-weight: 700; }
+.sheet .fine { font-size: .82em; color: var(--p-muted); margin: .4em 0 0; }
+.sheet .kv { gap: .12em .9em; margin: 0; font-size: .95em; }
+.sheet .kv dt { color: var(--p-muted); }
+.sheet .notes { padding-left: 1.1em; }
+.sheet .notes li { margin: 0; }
+
+.sheet .badge { font-size: 1em; border-width: 1.5px; }
+.sheet .badge-pass { color: var(--p-ok); background: var(--p-ok-bg); }
+.sheet .badge-notes { color: var(--p-notes); background: var(--p-notes-bg); }
+.sheet .badge-fail { color: var(--p-red); background: var(--p-red-bg); }
+.sheet .badge-none { color: var(--p-muted); background: none; }
+
+/* -- The label: reads through tape without unfolding. -- */
+
+.q-brand {
+  font-family: var(--mono); font-size: .78em; font-weight: 700;
+  letter-spacing: .14em; color: var(--p-muted);
+}
+.lbl-serial {
+  font-family: var(--mono); font-weight: 800; line-height: 1.05;
+  letter-spacing: -.01em; margin: .15em 0 .05em; overflow-wrap: anywhere;
+}
+.lbl-serial.s-xl { font-size: calc(.6 * var(--u)); }
+.lbl-serial.s-l { font-size: calc(.42 * var(--u)); }
+.lbl-serial.s-m { font-size: calc(.31 * var(--u)); }
+.lbl-serial.s-s { font-size: calc(.22 * var(--u)); }
+.lbl-model { font-size: 1.45em; font-weight: 600; }
+.lbl-verdict {
+  margin: .55em 0 .4em; padding: .25em .4em;
+  font-family: var(--mono); font-size: 1.75em; font-weight: 800; letter-spacing: .06em;
+  color: var(--p-ok); border: 3px solid currentColor; text-align: center;
+}
+.lbl-grade { font-size: 1.3em; }
+.lbl-why { margin: .2em 0; font-weight: 600; }
+.lbl-meta { display: grid; grid-template-columns: max-content 1fr; gap: .1em .8em; margin: .7em 0 0; font-size: 1.1em; }
+.lbl-meta dt { color: var(--p-muted); }
+.lbl-meta dd { margin: 0; font-weight: 600; }
+.lbl-link { margin-top: auto; display: flex; gap: .8em; align-items: flex-end; }
+.lbl-link .qr { width: calc(1.1 * var(--u)); height: calc(1.1 * var(--u)); flex: none; display: block; }
+.lbl-url { font-family: var(--mono); font-size: .85em; overflow-wrap: anywhere; color: var(--p-ink); }
+
+/* -- The surface map, DEFRAG-style. -- */
+
+.map-box { background: var(--vga-blue); padding: calc(.06 * var(--u)); border: 2px solid #aaa; }
+.map-box .map { display: block; width: 100%; height: auto; max-height: calc(2 * var(--u)); }
+.m-field, .m-grid { fill: var(--vga-blue); stroke: var(--vga-blue); }
+.m-field { stroke: none; }
+.m-grid { fill: none; }
+.m-v { fill: var(--vga-cyan); background: var(--vga-cyan); }
+.m-s { fill: var(--vga-yellow); background: var(--vga-yellow); }
+.m-b { fill: var(--vga-red); background: var(--vga-red); }
+.m-t { fill: var(--vga-dim); background: var(--vga-dim); }
+.map-legend { list-style: none; padding: 0; margin: .4em 0 0; display: flex; flex-wrap: wrap; gap: .2em 1.1em; font-size: .9em; }
+.chip {
+  display: inline-block; width: .9em; height: .9em; margin-right: .35em;
+  vertical-align: -.1em; outline: 1px solid var(--vga-blue);
+}
+
+.sheet table.health { width: 100%; min-width: 0; font-size: .92em; }
+.sheet table.health th, .sheet table.health td { padding: .12em .3em; border-bottom: 1px solid var(--p-rule); color: var(--p-ink); }
+.sheet table.health th { color: var(--p-muted); }
+.sheet table.health tr.worse td { color: var(--p-red); background: var(--p-red-bg); }
+
+/* -- Check it yourself. -- */
+
+.sheet p { margin: 0 0 .3em; }
+.sheet .cmd-label { margin: .6em 0 .15em; font-weight: 600; }
+.sheet .cmd {
+  font-size: .78em; line-height: 1.3; padding: .3em .45em;
+  background: var(--p-wash); border: none; border-left: 2px solid var(--p-ink); color: var(--p-ink);
+}
+.sheet-foot { margin-top: auto !important; padding-top: .5em; }
+
+/* -- NOT FOR SALE: the whole sheet says so, so it can't drift back into the
+   sell pile. -- */
+
+.nfs-band {
+  margin: calc(-.32 * var(--u)) calc(-.32 * var(--u)) .6em;
+  padding: .3em; text-align: center;
+  background: var(--p-red); color: #fff;
+  font-family: var(--mono); font-weight: 800; letter-spacing: .3em;
+}
+.sheet .nfs-line { color: var(--p-red); background: var(--p-red-bg); padding: .3em .45em; margin: .5em 0 0; font-weight: 600; }
+.sheet-nfs .q-label { background: var(--p-red); color: #fff; border-color: #fff; }
+.sheet-nfs .q-label .q-brand,
+.sheet-nfs .q-label .lbl-meta dt,
+.sheet-nfs .q-label .lbl-url { color: #fff; }
+.sheet-nfs .lbl-verdict { color: #fff; font-size: 2.6em; letter-spacing: .02em; line-height: 1.1; }
+
+/* ---- On paper: only the sheet ---- */
+
+@page za-sheet { size: letter; margin: 0; }
+
+@media print {
+  .record.has-sheet { display: none; }
+  .sheet-preview { margin: 0; }
+  .sheet {
+    --u: 1in;
+    page: za-sheet;
+    /* A hair under 11in, so rounding never spills a blank second page. */
+    height: 10.97in;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+}
