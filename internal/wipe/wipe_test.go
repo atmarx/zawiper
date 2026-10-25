@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/aes"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -43,6 +44,12 @@ func TestWipeAndVerify(t *testing.T) {
 		t.Fatalf("ok=%v cells=%d calls=%d %+v", r.OK(), len(r.Cells), calls, r)
 	}
 	b, _ := os.ReadFile(p)
+	key, _ := hex.DecodeString(r.Key)
+	iv, _ := hex.DecodeString(r.IV)
+	want := make([]byte, 4096)
+	if err := Keystream(key, iv, blk+bf, want); err != nil || !bytes.Equal(want, b[blk+bf:blk+bf+4096]) {
+		t.Errorf("the published key doesn't regenerate what's on the drive: %v", err)
+	}
 	if bytes.Count(b[:blk], []byte{0}) > blk/64 {
 		t.Error("the start of the drive doesn't look like noise")
 	}

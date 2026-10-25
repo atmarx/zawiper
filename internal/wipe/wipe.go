@@ -1,7 +1,8 @@
 // Package wipe overwrites a drive with a keystream, then reads every byte
-// back and checks it.  The keystream is AES-256-CTR under a key that lives
-// only in memory for the run: the drive ends up holding noise nobody can
-// reproduce, and the verify pass proves every block took the write.
+// back and checks it.  The keystream is AES-256-CTR under a fresh random key,
+// and the key goes in the record on purpose: anyone holding the record can
+// regenerate the stream and check the drive themselves (spec §7).  The old
+// data is gone either way; the key only proves it.
 //
 // Each block is timed on the way down and on the way back.  Those timings
 // are the surface map: a block well slower than its neighbours is a weak
@@ -16,6 +17,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -52,6 +54,9 @@ type Result struct {
 	Checked int64  `json:"checked"`
 	Bad     int64  `json:"bad"`
 	Aborted string `json:"aborted,omitempty"`
+	// Key and IV, hex, published so the wipe can be re-checked (Keystream).
+	Key string `json:"key"`
+	IV  string `json:"iv"`
 }
 
 // OK is a finished wipe where every byte read back as written.
@@ -144,7 +149,6 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 		return nil, err
 	}
 	iv := key[32:]
-	defer clear(key)
 
 	flags := os.O_RDWR | syscall.O_EXCL // exclusive: refuses if anything has it open
 	if j.Direct {
@@ -165,7 +169,8 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 
 	n := int((j.Size + bs - 1) / bs)
 	r := &Result{Method: "AES-256-CTR keystream, one pass, read back and compared", Size: j.Size, Block: bs,
-		Cells: make([]Cell, n), Started: time.Now().UTC()}
+		Cells: make([]Cell, n), Started: time.Now().UTC(),
+		Key: hex.EncodeToString(key[:32]), IV: hex.EncodeToString(iv)}
 
 	// Write.
 	for i := 0; i < n; i++ {
@@ -232,6 +237,20 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 	}
 	r.Verified = time.Now().UTC()
 	return r, nil
+}
+
+// Keystream fills b with the stream a wipe with this key and IV wrote at
+// byte off.  It's how a verifier regenerates what should be on the drive.
+func Keystream(key, iv []byte, off int64, b []byte) error {
+	if len(key) != 32 || len(iv) != 16 || off%16 != 0 {
+		return fmt.Errorf("want a 32-byte key, a 16-byte IV and an offset on a 16-byte boundary")
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	keystream(block, iv, off, b)
+	return nil
 }
 
 // keystream fills b with the stream as it stands at byte off.  CTR can
