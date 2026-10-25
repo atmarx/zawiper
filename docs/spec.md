@@ -248,7 +248,7 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
   - **The inside is the certificate,** with the surface map in color.
   - **A failed drive prints too,** as a red "not for sale" sheet, so it can't drift back into the sell pile.
   - **The same render saves as a PNG** for the listing: one image per drive, ready to post or give away.
-- **Lots.**  Most of the pile is 1 TB, with some 2 TB and a few 4 TB, so they sell best as lots of two or three matched drives.  A lot is a named group of serials: same model, close in power-on hours.  It gets its own page and one PNG with every drive's surface map side by side.  The lot is graded by its worst drive.
+- **Lots.**  Most of the pile is 1 TB, with some 2 TB and a few 4 TB, so they sell best as lots of two or three matched drives.  Three is a mirror and a spare.  A lot is a named group of serials: same model, close in power-on hours.  It gets its own page and one PNG with every drive's surface map side by side.  The lot is graded by its worst drive.
 - **Signed, from Phase 2.**  `record.json` is signed with `ssh-keygen -Y sign` (*v0.1 §9.4*), and the public key and the verification steps are printed on the certificate.  An unsigned certificate is just a nice PDF.
 - **A verifier for buyers:** a short script, or a page on the certificate, that reads a drive and checks it against the published key.
 - **Backups:** the hub's `/srv/zawiper/` is the one thing in the system that can't be recreated.  It goes in the backup scope the day it ships (Val).
