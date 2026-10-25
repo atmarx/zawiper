@@ -1,6 +1,6 @@
-// Package proto is the unix-socket conversation between zaweb and bayd.
-// One JSON request, one JSON reply, then the connection closes.  The verbs
-// are fixed and none of them takes a device, a path, or a command.
+// Package proto is the unix-socket conversation between a bay's link and its
+// disk side.  One JSON request, one JSON reply, then the connection closes.
+// The verbs are fixed and none of them takes a device, a path, or a command.
 package proto
 
 import (
@@ -21,10 +21,21 @@ type Verb string
 const (
 	Status Verb = "status"
 	Reread Verb = "reread"
+	// Wipe carries the drive and insertion the confirm was drawn from.  The
+	// disk side refuses unless that's what it holds right now.
+	Wipe Verb = "wipe"
+	// Ack clears DONE, FAILED, INTERRUPTED or ALARM back to the drive.
+	Ack Verb = "ack"
+	// Eject syncs, spins the drive down, and lets it go.
+	Eject Verb = "eject"
 )
 
+// There is no abort verb, on purpose (spec §4.3).
+
 type Request struct {
-	Verb Verb `json:"verb"`
+	Verb    Verb      `json:"verb"`
+	Serial  string    `json:"serial,omitempty"`
+	Session time.Time `json:"session,omitzero"`
 }
 
 type Reply struct {
@@ -37,6 +48,9 @@ type Reply struct {
 type Handler interface {
 	Status() model.Snapshot
 	Reread()
+	Wipe(serial string, session time.Time) error
+	Ack() error
+	Eject() error
 }
 
 // Serve listens on a unix socket.  The socket is chmod 0660 and chowned to
@@ -87,6 +101,23 @@ func handle(c net.Conn, h Handler) {
 			h.Reread()
 			s := h.Status()
 			rep.OK, rep.Snapshot = true, &s
+		case Wipe, Ack, Eject:
+			var err error
+			switch req.Verb {
+			case Wipe:
+				err = h.Wipe(req.Serial, req.Session)
+			case Ack:
+				err = h.Ack()
+			case Eject:
+				err = h.Eject()
+			}
+			s := h.Status()
+			rep.Snapshot = &s
+			if err != nil {
+				rep.Error = err.Error()
+			} else {
+				rep.OK = true
+			}
 		default:
 			rep.Error = fmt.Sprintf("unknown verb %q", req.Verb)
 		}
@@ -98,6 +129,11 @@ func handle(c net.Conn, h Handler) {
 type Client struct{ Socket string }
 
 func (c *Client) Call(ctx context.Context, v Verb) (*model.Snapshot, error) {
+	return c.Do(ctx, Request{Verb: v})
+}
+
+// Do sends a full request, for the verbs that carry more than their name.
+func (c *Client) Do(ctx context.Context, req Request) (*model.Snapshot, error) {
 	var d net.Dialer
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -109,7 +145,7 @@ func (c *Client) Call(ctx context.Context, v Verb) (*model.Snapshot, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		conn.SetDeadline(dl)
 	}
-	if err := json.NewEncoder(conn).Encode(Request{Verb: v}); err != nil {
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, err
 	}
 	var rep Reply

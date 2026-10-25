@@ -3,6 +3,7 @@ package proto
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -13,8 +14,11 @@ import (
 
 type h struct{ rereads int }
 
-func (x *h) Status() model.Snapshot { return model.Snapshot{State: model.Empty, Bay: "test"} }
-func (x *h) Reread()                { x.rereads++ }
+func (x *h) Status() model.Snapshot       { return model.Snapshot{State: model.Empty, Bay: "test"} }
+func (x *h) Reread()                      { x.rereads++ }
+func (x *h) Wipe(string, time.Time) error { return errors.New("not in tests") }
+func (x *h) Ack() error                   { return nil }
+func (x *h) Eject() error                 { return nil }
 
 func TestSocket(t *testing.T) {
 	sock := filepath.Join(t.TempDir(), "bayd.sock")
@@ -37,8 +41,11 @@ func TestSocket(t *testing.T) {
 	if _, err := c.Call(ctx, Reread); err != nil || x.rereads != 1 {
 		t.Errorf("reread: %v, %d", err, x.rereads)
 	}
-	if _, err := c.Call(ctx, "wipe"); err == nil {
+	if _, err := c.Call(ctx, "abort"); err == nil {
 		t.Error("unknown verb accepted")
+	}
+	if _, err := c.Call(ctx, Wipe); err == nil {
+		t.Error("the handler's refusal didn't come back")
 	}
 
 	// A request that tries to carry more than a verb is refused outright.

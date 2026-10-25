@@ -2,6 +2,7 @@ package bay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -132,3 +133,8 @@ func signature(devs []Device) string {
 	}
 	return sb.String()
 }
+
+// Wipe, Ack and Eject arrive in Phase 2; until then the disk side says no.
+func (b *Bay) Wipe(string, time.Time) error { return errors.New("wiping isn't built yet") }
+func (b *Bay) Ack() error                   { return errors.New("nothing to acknowledge") }
+func (b *Bay) Eject() error                 { return errors.New("eject isn't built yet") }

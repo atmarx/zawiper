@@ -13,7 +13,62 @@ const (
 	Empty   State = "EMPTY"
 	Reading State = "READING"
 	Present State = "PRESENT"
+
+	// A job, and how it ended (spec §5).  DONE, FAILED, INTERRUPTED and
+	// ALARM hold until someone acknowledges them.
+	Running     State = "RUNNING"
+	Done        State = "DONE"
+	Failed      State = "FAILED"
+	Interrupted State = "INTERRUPTED"
+	Alarm       State = "ALARM"
+
+	// Offline is the hub's word for a bay whose link is down.  No bay
+	// ever reports it about itself.
+	Offline State = "OFFLINE"
 )
+
+// Surface-map cells, one byte each in Job.Map, as the wall draws them.
+const (
+	CellTodo     = '.' // not reached yet
+	CellWriting  = 'W'
+	CellWritten  = 'w'
+	CellReading  = 'R'
+	CellVerified = 'v'
+	CellSlow     = 's' // marked when the job ends: slowness needs neighbours
+	CellBad      = 'B'
+)
+
+// Job is a running or finished job, as the wall shows it.  bayd writes it to
+// the bay's state file before every transition.
+type Job struct {
+	Kind    string    `json:"kind"`  // wipe
+	Phase   string    `json:"phase"` // smart-before, write, verify, smart-after, record
+	Serial  string    `json:"serial"`
+	Session time.Time `json:"session"` // the insertion the confirm was drawn from
+	Started time.Time `json:"started"`
+	Ended   time.Time `json:"ended,omitzero"`
+
+	Map   string  `json:"map"`   // one Cell* byte per block
+	Done  int64   `json:"done"`  // bytes through both passes, out of 2×Total
+	Total int64   `json:"total"` // the drive's size
+	MBps  float64 `json:"mbps"`
+	ETA   int64   `json:"eta_s"`
+	TempC int     `json:"temp_c,omitempty"`
+	Bad   int64   `json:"bad"`
+
+	// Evidence is what ended a FAILED or ALARM job: phase, offset, and what
+	// the drive said.
+	Evidence string `json:"evidence,omitempty"`
+	RecordID string `json:"record_id,omitempty"`
+}
+
+// JobFile is /var/lib/zawiper/<bay>/job.json.  The disk side writes it
+// before every transition.  When the disk side isn't running, the link reads
+// it: a RUNNING job with nobody running it is INTERRUPTED.
+type JobFile struct {
+	State State `json:"state"`
+	Job   Job   `json:"job"`
+}
 
 // Bridge is what the USB-to-SATA bridge says about itself.  Never identity:
 // bridges ship with constant or blank serials.
@@ -100,6 +155,8 @@ type Snapshot struct {
 	Devices  []string  `json:"devices,omitempty"` // when there is more than one
 	Refusals []string  `json:"refusals,omitempty"`
 	RecordID string    `json:"record_id,omitempty"`
+	Host     string    `json:"host,omitempty"`
+	Job      *Job      `json:"job,omitempty"` // RUNNING and the four endings
 
 	// Raw smartctl output, kept for the record and not sent over the socket.
 	SmartJSON []byte `json:"-"`
