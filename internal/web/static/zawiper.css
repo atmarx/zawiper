@@ -341,7 +341,7 @@ html { overflow-x: clip; }
 .dos-cells span { white-space: normal; }
 .c-todo { color: var(--cga-gray); }
 .c-written { color: var(--cga-lcyan); }
-.c-verified { color: var(--cga-white); background: var(--cga-white); } /* no hairlines between solid blocks */
+.c-verified { color: var(--cga-white); }
 .c-slow { color: var(--cga-yellow); }
 .c-cur { color: #000; background: var(--cga-yellow); animation: blink 1s steps(1) infinite; }
 .c-bad { color: var(--cga-white); background: var(--cga-red); }
@@ -371,6 +371,13 @@ html { overflow-x: clip; }
 .dos-legend .c-cur, .dos-legend .c-bad { animation: none; }
 .dos-legend .c-cur { background: var(--cga-yellow); }
 .dos-legend .c-bad { background: var(--cga-red); }
+.dos-wide { grid-column: 1 / -1; }
+.dos-trace { display: flex; justify-content: center; margin: 8px 0; }
+.dos-trace pre { margin: 0; font: inherit; line-height: 16px; white-space: pre; }
+.dos-plot { background: var(--cga-blue); min-width: 32ch; min-height: 96px; }
+.t-w { color: var(--cga-lcyan); }
+.t-r { color: var(--cga-white); }
+.dos-note .t-w, .dos-note .t-r { background: var(--cga-blue); }
 
 /* The mini map on a tile: the same cells, shrunk to 64. */
 .mini {

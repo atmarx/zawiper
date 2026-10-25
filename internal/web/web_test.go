@@ -254,7 +254,7 @@ func TestWall(t *testing.T) {
 			`href="/bays/dock-host/bay1"`, `data-key="dock-host/bay1"`, `data-sig="`,
 			"ST31000528AS", `<span class="serial-tail">PAX9NA</span>`, // the last six, big
 			"⚠ Looks like a backup", "tile-warn",
-			"tile-running", "75.0%", "Reading it back", `data-field="mini"`, `<span class="c-verified">████</span><span class="c-cur">R</span>`,
+			"tile-running", "75.0%", "Reading it back", `data-field="mini"`, `<span class="c-verified">■■■■</span><span class="c-cur">r</span>`,
 			"tile-offline", "OFFLINE", "Link down",
 		)
 		if strings.Index(body, "dock-host") > strings.Index(body, "dev-host") {
@@ -313,7 +313,7 @@ func TestBayStates(t *testing.T) {
 	body = get(h, page).Body.String()
 	wants(t, "running", body, "Do not pull the drive.", `class="dos"`, "Writing the keystream", "Block 3 of 8",
 		"151 MB/s", "1:02:05", "41 °C", "18.7%", `data-field="map"`,
-		`<span class="c-written">▓▓</span><span class="c-cur">W</span><span class="c-todo">░░░░░</span>`)
+		`<span class="c-written">■■</span><span class="c-cur">W</span><span class="c-todo">░░░░░</span>`)
 	if strings.Contains(body, "<button") {
 		t.Error("RUNNING has a button")
 	}
@@ -608,8 +608,8 @@ func TestDemoFleet(t *testing.T) {
 		t.Fatal("no tick")
 	}
 	after, _ := f.Bay("dock-host/bay1")
-	if before.Snap.Job.Map == after.Snap.Job.Map {
-		t.Error("the running map didn't move")
+	if before.Snap.Job.Done == after.Snap.Job.Done {
+		t.Error("the running job didn't move")
 	}
 
 	b, _ := f.Bay("dock-host/bay2")
@@ -797,5 +797,48 @@ func TestInspectHasNoCertificate(t *testing.T) {
 	}
 	if c := records.NewCertificate(&records.Record{Kind: "inspect"}, nil); c != nil {
 		t.Error("NewCertificate for an inspection")
+	}
+}
+
+func TestTrace(t *testing.T) {
+	// Four blocks written, two read back: 200 MB/s tops the graph, and the
+	// read-back wins its columns.
+	enc, axis := trace([]uint16{180, 160, 100, 100}, []uint16{190, 0, 0, 0}, 4)
+	if enc != ";;:-6-6-" {
+		t.Errorf("trace %q", enc)
+	}
+	if !strings.HasPrefix(axis, "200┤\n") || !strings.Contains(axis, "100┤") || !strings.HasSuffix(axis, "  0┤") || strings.Count(axis, "\n") != traceRows-1 {
+		t.Errorf("axis %q", axis)
+	}
+	rows := strings.Split(string(TraceRows(enc)), "\n")
+	if len(rows) != traceRows {
+		t.Fatalf("%d rows", len(rows))
+	}
+	if rows[0] != `<span class="t-r">▄</span><span class="t-w">   </span>` || rows[traceRows-1] != `<span class="t-r">█</span><span class="t-w">███</span>` {
+		t.Errorf("rows %q", rows)
+	}
+	if enc, _ := trace(nil, nil, 32); enc != "" {
+		t.Errorf("no rates drew %q", enc)
+	}
+	// More blocks than columns: each column is its blocks' average, and
+	// the graph tops out at the next 50 MB/s.
+	if enc, _ := trace([]uint16{100, 200, 0, 0}, nil, 2); enc != "<---" {
+		t.Errorf("averaged %q", enc)
+	}
+}
+
+func TestGroupAndGB(t *testing.T) {
+	if g := Group("vvvwW...", 3); g != "vW." {
+		t.Errorf("group %q", g)
+	}
+	if g := Group("vw", 1); g != "vw" {
+		t.Errorf("group by one %q", g)
+	}
+	if gb(556_410_000_000) != "556.41 GB" || gb(1_000_204_886_016) != "1.000 TB" {
+		t.Errorf("%s %s", gb(556_410_000_000), gb(1_000_204_886_016))
+	}
+	l := LiveOf(&model.Job{Map: strings.Repeat("v", 4000), Total: 4000 * gib, Done: 4000 * gib}, time.Now())
+	if len(l.Map) != 1334 || l.Scale != "1 block = 3 GiB" || l.Written != "4.295 TB" || l.Checked != "0.00 GB" {
+		t.Errorf("4 TB live: %d cells, %q, %q, %q", len(l.Map), l.Scale, l.Written, l.Checked)
 	}
 }

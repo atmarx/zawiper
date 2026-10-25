@@ -20,10 +20,10 @@ import (
 var glyphs = map[byte]struct{ glyph, class string }{
 	model.CellTodo:     {"░", "todo"},
 	model.CellWriting:  {"W", "cur"},
-	model.CellReading:  {"R", "cur"},
-	model.CellWritten:  {"▓", "written"},
-	model.CellVerified: {"█", "verified"},
-	model.CellSlow:     {"▒", "slow"},
+	model.CellReading:  {"r", "cur"},
+	model.CellWritten:  {"■", "written"},
+	model.CellVerified: {"■", "verified"},
+	model.CellSlow:     {"■", "slow"},
 	model.CellBad:      {"B", "bad"},
 }
 
@@ -63,6 +63,19 @@ func Mini(m string, n int) string {
 	out := make([]byte, n)
 	for i := range n {
 		out[i] = summarize(m[i*len(m)/n : (i+1)*len(m)/n])
+	}
+	return string(out)
+}
+
+// Group shrinks a map so that each cell stands for per blocks, the way a
+// big drive's map still fits on a page.
+func Group(m string, per int) string {
+	if per <= 1 {
+		return m
+	}
+	out := make([]byte, 0, (len(m)+per-1)/per)
+	for i := 0; i < len(m); i += per {
+		out = append(out, summarize(m[i:min(i+per, len(m))]))
 	}
 	return string(out)
 }
@@ -116,6 +129,7 @@ func PhaseWords(p string) string {
 type Live struct {
 	Map     string `json:"map"`
 	Mini    string `json:"mini"`
+	Scale   string `json:"scale"`
 	Phase   string `json:"phase"`
 	Block   string `json:"block"`
 	Pct     string `json:"pct"`
@@ -125,6 +139,12 @@ type Live struct {
 	Elapsed string `json:"elapsed"`
 	Temp    string `json:"temp"`
 	Errors  string `json:"errors"`
+	Written string `json:"written"`
+	Checked string `json:"checked"`
+	// Trace is the throughput graph, as TraceRows reads it, and Axis the
+	// labels beside it, a line per row.
+	Trace string `json:"trace"`
+	Axis  string `json:"axis"`
 
 	// Headline numbers, for a job that's over.
 	Took     string `json:"-"`
@@ -133,10 +153,23 @@ type Live struct {
 	Slow     int    `json:"-"`
 }
 
-const miniCells = 64
+const (
+	miniCells = 64
+	// mapCells is about as many cells as the big map shows before it
+	// groups blocks: 1,000 GiB fits one to a cell, 4 TB goes three.
+	mapCells = 1600
+	// traceCols is the graph's width in characters, narrow enough for a
+	// phone.
+	traceCols = 32
+)
 
 func LiveOf(j *model.Job, now time.Time) *Live {
-	l := &Live{Map: j.Map, Mini: Mini(j.Map, miniCells), Phase: PhaseWords(j.Phase)}
+	per := (len(j.Map) + mapCells - 1) / mapCells
+	l := &Live{Map: Group(j.Map, per), Mini: Mini(j.Map, miniCells), Phase: PhaseWords(j.Phase),
+		Scale: fmt.Sprintf("1 block = %d GiB", max(1, per))}
+	l.Written = gb(min(j.Done, j.Total))
+	l.Checked = gb(max(0, j.Done-j.Total))
+	l.Trace, l.Axis = trace(j.WriteMBps, j.ReadMBps, traceCols)
 
 	frac := 0.0
 	if j.Total > 0 {
@@ -194,6 +227,121 @@ func LiveOf(j *model.Job, now time.Time) *Live {
 	return l
 }
 
+// gb counts bytes to ten megabytes, so it moves every second a drive is
+// busy.
+func gb(n int64) string {
+	if n >= 1e12 {
+		return fmt.Sprintf("%.3f TB", float64(n)/1e12)
+	}
+	return fmt.Sprintf("%.2f GB", float64(n)/1e9)
+}
+
+// trace boils the per-block speeds down to cols columns, outer edge first.
+// Each column is two characters: the write pass's height and the read-back's,
+// in half rows from '0' up (see traceRows), or '-' for nothing yet.  The
+// read-back wins where it has been, so the white catches up with the cyan.
+// axis labels the rows: the top speed, half of it, and zero.
+func trace(write, read []uint16, cols int) (enc, axis string) {
+	n := max(len(write), len(read))
+	if n == 0 {
+		return "", traceAxis(0)
+	}
+	cols = min(cols, n)
+	type col struct{ w, r float64 }
+	cs := make([]col, cols)
+	peak := 0.0
+	avg := func(v []uint16, from, to int) float64 {
+		sum, k := 0.0, 0
+		for i := from; i < to && i < len(v); i++ {
+			if v[i] > 0 {
+				sum += float64(v[i])
+				k++
+			}
+		}
+		if k == 0 {
+			return 0
+		}
+		return sum / float64(k)
+	}
+	for c := range cs {
+		from, to := c*n/cols, (c+1)*n/cols
+		cs[c] = col{avg(write, from, to), avg(read, from, to)}
+		peak = math.Max(peak, math.Max(cs[c].w, cs[c].r))
+	}
+	if peak == 0 {
+		return "", traceAxis(0)
+	}
+	scale := math.Ceil(peak/50) * 50
+	level := func(v float64) byte {
+		if v <= 0 {
+			return '-'
+		}
+		return '0' + byte(max(1, min(2*traceRows, int(math.Round(v/scale*2*traceRows)))))
+	}
+	b := make([]byte, 0, 2*cols)
+	for _, c := range cs {
+		b = append(b, level(c.w), level(c.r))
+	}
+	return string(b), traceAxis(scale)
+}
+
+// traceRows is how many text rows the graph stands; each holds two levels,
+// a lower half block and a full one.
+const traceRows = 6
+
+func traceAxis(top float64) string {
+	rows := make([]string, traceRows)
+	for i := range rows {
+		rows[i] = "   ┤"
+	}
+	if top > 0 {
+		rows[0] = fmt.Sprintf("%3.0f┤", top)
+		rows[traceRows/2] = fmt.Sprintf("%3.0f┤", top/2)
+	}
+	rows[traceRows-1] = "  0┤"
+	return strings.Join(rows, "\n")
+}
+
+// TraceRows draws the graph as rows of half and full blocks, top row first,
+// colored by pass.  zawiper.js draws the same thing from the same string;
+// keep the two in step.
+func TraceRows(enc string) template.HTML {
+	var b strings.Builder
+	for row := traceRows - 1; row >= 0; row-- {
+		run := ""
+		for c := 0; c+1 < len(enc); c += 2 {
+			lv, class := enc[c+1], "t-r"
+			if lv == '-' {
+				lv, class = enc[c], "t-w"
+			}
+			g := " "
+			if lv >= '0' && lv <= '0'+2*traceRows {
+				switch h := int(lv - '0'); {
+				case h >= 2*row+2:
+					g = "█"
+				case h == 2*row+1:
+					g = "▄"
+				}
+			}
+			if class != run {
+				if run != "" {
+					b.WriteString("</span>")
+				}
+				fmt.Fprintf(&b, `<span class="%s">`, class)
+				run = class
+			}
+			b.WriteString(g)
+		}
+		if run != "" {
+			b.WriteString("</span>")
+		}
+		if row > 0 {
+			b.WriteString("\n")
+		}
+	}
+	return template.HTML(b.String())
+}
+
 // clock is h:mm:ss, the way DEFRAG counted.
 func clock(d time.Duration) string {
 	d = d.Round(time.Second)
@@ -219,6 +367,7 @@ func Sig(b hub.Bay) string {
 	if s.Job != nil {
 		j := *s.Job
 		j.Phase, j.Map, j.Done, j.MBps, j.ETA, j.TempC, j.Bad = "", "", 0, 0, 0, 0, 0
+		j.WriteMBps, j.ReadMBps = nil, nil
 		job = &j
 	}
 	blob, _ := json.Marshal(struct {

@@ -55,6 +55,10 @@ type Job struct {
 	ETA   int64   `json:"eta_s"`
 	TempC int     `json:"temp_c,omitempty"`
 	Bad   int64   `json:"bad"`
+	// Each block's speed in MB/s, per pass, for the wall's throughput
+	// graph.  Zero until the pass reaches the block.
+	WriteMBps []uint16 `json:"write_mbps,omitempty"`
+	ReadMBps  []uint16 `json:"read_mbps,omitempty"`
 
 	// Evidence is what ended a FAILED or ALARM job: phase, offset, and what
 	// the drive said.

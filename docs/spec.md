@@ -181,15 +181,19 @@ Thresholds live in a config file, with the reason next to each one.
 
 The wipe screen is DEFRAG.  The drive is a grid of 1 GiB blocks.  It's 932 cells for a terabyte, laid out in text-mode rows and drawn in the IBM VGA 8×16 font (Ultimate Oldschool PC Font Pack, CC BY-SA 4.0, self-hosted).  The colors are the blue field and gray frames, with a status box and a legend below.
 
-| Cell | Means |
-|---|---|
-| `░` | not reached yet |
-| `W` / `R` | being written / being read back now |
-| `▓` | written |
-| `█` | read back and verified |
-| `▒` | slow: over twice the median time of its 16 neighbours.  Neighbours, because a spinning drive slows toward the inner tracks on its own. |
-| `B` | bad: a write or read error, or bytes that came back wrong |
-| shelf colors | Load: each ZIM lands as a run, colored by shelf.  The cells come from where the filesystem actually put the file, not from a cursor. |
+| Wall | Printout | Means |
+|---|---|---|
+| `░` | `░` | not reached yet |
+| `W` / `r` | `W` / `R` | being written / being read back now, blinking, as DEFRAG had them |
+| cyan `■` | `▓` | written |
+| white `■` | `█` | read back and verified |
+| yellow `■` | `▒` | slow: over twice the median time of its 16 neighbours.  Neighbours, because a spinning drive slows toward the inner tracks on its own. |
+| `B` | `B` | bad: a write or read error, or bytes that came back wrong |
+| shelf colors | | Load: each ZIM lands as a run, colored by shelf.  The cells come from where the filesystem actually put the file, not from a cursor. |
+
+The wall draws discrete squares, so the grid reads as blocks rather than a fill; the printout has no color, so it keeps the shades.  Past 1,600 blocks the wall groups them (a 4 TB drive is 3 GiB a cell) and says so under the legend.
+
+A 1 GiB block takes seven seconds or so, so the map alone moves in steps.  Between blocks, the engine reports after every 8 MiB buffer, and the link's once-a-second poll carries it: the written and verified byte counts, the percentage and the clock all move every second.  Under the boxes, a **Throughput** box graphs each block's MB/s across the drive, outer edge first: cyan as written, white as read back, so the read-back visibly catches up.  It's the drive's own speed curve, falling toward the inner tracks, in half-block characters.
 
 `bayd` keeps the cell states, and the page gets them as one short string a tick.  Every viewer gets the same string (§4.3).  The final map, with each block's write and read times, goes into the record.  `record.md` and the printout carry it as text, so the map ships with the drive.
 

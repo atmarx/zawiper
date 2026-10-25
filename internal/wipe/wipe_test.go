@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -38,13 +39,22 @@ func drive(t *testing.T) string {
 func TestWipeAndVerify(t *testing.T) {
 	p := drive(t)
 	var calls int
-	j := &Job{Path: p, Size: size, Block: blk, Buf: bf, OnCell: func(string, int, int, Cell) { calls++ }}
+	moved := map[string][]int64{}
+	j := &Job{Path: p, Size: size, Block: blk, Buf: bf, OnCell: func(string, int, int, Cell) { calls++ },
+		OnBytes: func(pass string, done int64) { moved[pass] = append(moved[pass], done) }}
 	r, err := j.Run(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !r.OK() || len(r.Cells) != 3 || calls != 6 {
 		t.Fatalf("ok=%v cells=%d calls=%d %+v", r.OK(), len(r.Cells), calls, r)
+	}
+	// Every buffer reports, so the wall moves inside a block.
+	for _, pass := range []string{"write", "verify"} {
+		m := moved[pass]
+		if len(m) != int((size+bf-1)/bf) || m[0] != bf || m[len(m)-1] != size || !slices.IsSorted(m) {
+			t.Errorf("%s pass reported %v", pass, m)
+		}
 	}
 	b, _ := os.ReadFile(p)
 	key, _ := hex.DecodeString(r.Key)

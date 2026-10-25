@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -61,18 +62,14 @@ func NewDemoFleet() *DemoFleet {
 	running.Snap = model.Snapshot{State: model.Running, Bay: "bay1", Host: "dock-host", Session: now.Add(-3 * time.Hour), ReadAt: now.Add(-3 * time.Hour), Drive: seagate}
 	running.Snap.Job = newDemoJob(seagate, running.Snap.Session, now.Add(-2*time.Hour))
 	// Start partway into the write pass, so there's something to look at.
-	for range len(running.Snap.Job.Map) * 55 / 100 {
-		advance(running.Snap.Job, 1)
-	}
+	advance(running.Snap.Job, float64(len(running.Snap.Job.Map))*0.55)
 
 	present := &hub.Bay{Key: "dock-host/bay2", Host: "dock-host", Name: "bay2", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
 	present.Snap = model.Snapshot{State: model.Present, Bay: "bay2", Host: "dock-host", Session: now.Add(-4 * time.Minute), ReadAt: now.Add(-4 * time.Minute), Drive: wd, RecordID: "demo-inspect"}
 
 	done := &hub.Bay{Key: "dev-host/dock", Host: "dev-host", Name: "dock", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
 	job := newDemoJob(toshiba, now.Add(-90*time.Minute), now.Add(-80*time.Minute))
-	for range 2*len(job.Map) + 1 {
-		advance(job, 1)
-	}
+	advance(job, float64(2*len(job.Map)+1))
 	finish(job, now.Add(-12*time.Minute))
 	done.Snap = model.Snapshot{State: model.Done, Bay: "dock", Host: "dev-host", Session: job.Session, ReadAt: job.Session, Drive: toshiba, Job: job, RecordID: job.RecordID}
 
@@ -108,34 +105,56 @@ func newDemoJob(d *model.Drive, session, started time.Time) *model.Job {
 }
 
 // advance moves a job on by n blocks: the write pass, then the read-back.
-func advance(j *model.Job, n int) {
-	m := []byte(j.Map)
-	for range n {
-		cur := strings.IndexAny(string(m), "WR")
+func advance(j *model.Job, n float64) {
+	j.Done = min(2*j.Total, j.Done+int64(n*gib))
+	blocks := len(j.Map)
+	if len(j.WriteMBps) != blocks {
+		j.WriteMBps, j.ReadMBps = make([]uint16, blocks), make([]uint16, blocks)
+	}
+	// A spinning drive slows toward the inner tracks; so does the demo,
+	// with a little wobble, and the read-back runs a touch faster.
+	speed := func(i int, read bool) uint16 {
+		pos := float64(i) / float64(blocks)
+		v := 172 - 80*pos + 6*math.Sin(float64(i)*0.7) + 3*math.Sin(float64(i)*2.3)
+		if read {
+			v += 9
+		}
+		return uint16(v)
+	}
+	m := make([]byte, blocks)
+	wrote, read := min(j.Done, j.Total), max(0, j.Done-j.Total)
+	for i := range m {
+		from, to := int64(i)*gib, min(int64(i+1)*gib, j.Total)
 		switch {
-		case cur >= 0 && m[cur] == model.CellWriting:
-			m[cur] = model.CellWritten
-		case cur >= 0:
-			m[cur] = model.CellVerified
-		}
-		if i := strings.IndexByte(string(m), model.CellTodo); i >= 0 {
-			m[i] = model.CellWriting
-			j.Phase = "write"
-		} else if i := strings.IndexByte(string(m), model.CellWritten); i >= 0 {
+		case read >= to:
+			m[i] = model.CellVerified
+			j.WriteMBps[i], j.ReadMBps[i] = speed(i, false), speed(i, true)
+		case wrote >= to && wrote == j.Total && read >= from:
 			m[i] = model.CellReading
-			j.Phase = "verify"
-		} else {
-			j.Phase = "smart-after"
+			j.WriteMBps[i] = speed(i, false)
+		case wrote >= to:
+			m[i] = model.CellWritten
+			j.WriteMBps[i] = speed(i, false)
+		case wrote >= from:
+			m[i] = model.CellWriting
+		default:
+			m[i] = model.CellTodo
 		}
-		j.Done = min(2*j.Total, j.Done+gib)
 	}
 	j.Map = string(m)
-	// A spinning drive slows toward the inner tracks; so does the demo.
-	pos := float64(strings.IndexAny(j.Map, "WR")) / float64(len(j.Map))
-	if pos < 0 {
-		pos = 1
+	switch {
+	case j.Done >= 2*j.Total:
+		j.Phase = "smart-after"
+	case j.Done >= j.Total:
+		j.Phase = "verify"
+	default:
+		j.Phase = "write"
 	}
-	j.MBps = 172 - 80*pos
+	cur := strings.IndexAny(j.Map, "WR")
+	if cur < 0 {
+		cur = blocks - 1
+	}
+	j.MBps = float64(speed(cur, j.Phase == "verify"))
 	j.TempC = 40 + int(4*float64(j.Done)/float64(2*j.Total))
 	if j.MBps > 0 {
 		j.ETA = int64(float64(2*j.Total-j.Done) / (j.MBps * 1e6))
@@ -187,7 +206,7 @@ func (f *DemoFleet) step(key string, b *hub.Bay, now time.Time) bool {
 	switch s.State {
 	case model.Running:
 		j := s.Job
-		advance(j, 2)
+		advance(j, 0.35)
 		if j.Phase == "smart-after" {
 			finish(j, now)
 			s.State, s.RecordID = model.Done, j.RecordID

@@ -140,6 +140,7 @@ func (b *Bay) run(ctx context.Context, j *job) {
 		Block: j.block, Buf: b.Buf, CheckEvery: b.CheckEvery,
 		OnStart: func(pass string, i, n int) { b.blockStart(j, pass, i) },
 		OnCell:  func(pass string, i, n int, c wipe.Cell) { b.blockDone(j, pass, i, c) },
+		OnBytes: func(pass string, done int64) { b.moved(j, pass, done) },
 		Check:   func(off int64) error { return b.checkIdentity(ctx, j, off) },
 	}
 	res, err := w.Run(ctx)
@@ -347,10 +348,16 @@ func (b *Bay) blockDone(j *job, pass string, i int, c wipe.Cell) {
 	}
 	if secs > 0 {
 		live.MBps = float64(to-from) / secs / 1e6
+		rates := &live.WriteMBps
+		if pass == "verify" {
+			rates = &live.ReadMBps
+		}
+		if len(*rates) != len(j.cells) {
+			*rates = make([]uint16, len(j.cells))
+		}
+		(*rates)[i] = uint16(min(live.MBps+0.5, 65535))
 	}
-	if el := time.Since(j.t0).Seconds(); el > 0 && live.Done > 0 {
-		live.ETA = int64(float64(2*size-live.Done) / (float64(live.Done) / el))
-	}
+	eta(j, live, size)
 	live.Map = string(j.cells)
 	if err := b.saveState(model.Running, live); err != nil {
 		log.Printf("job: state file: %v", err)
@@ -359,6 +366,28 @@ func (b *Bay) blockDone(j *job, pass string, i int, c wipe.Cell) {
 	b.mu.Unlock()
 	if hook != nil {
 		hook(pass, i)
+	}
+}
+
+// moved is the engine's word between blocks: how far the pass has got.  It
+// only moves the live numbers, which the link polls every second; the state
+// file waits for the block to finish.
+func (b *Bay) moved(j *job, pass string, done int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	live, size := b.snap.Job, j.dev.Size
+	if pass == "verify" {
+		done += size
+	}
+	if done > live.Done {
+		live.Done = done
+		eta(j, live, size)
+	}
+}
+
+func eta(j *job, live *model.Job, size int64) {
+	if el := time.Since(j.t0).Seconds(); el > 0 && live.Done > 0 {
+		live.ETA = int64(float64(2*size-live.Done) / (float64(live.Done) / el))
 	}
 }
 

@@ -68,6 +68,7 @@ var funcs = template.FuncMap{
 	"rotation": records.Rotation,
 	"dir":      records.DirName,
 	"cells":    Cells,
+	"trace":    TraceRows,
 	"phase":    PhaseWords,
 	"rfc3339":  func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	"commas": func(n any) string {

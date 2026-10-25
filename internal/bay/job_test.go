@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,9 @@ func TestWipeDone(t *testing.T) {
 	j := s.Job
 	if strings.Trim(j.Map, "vs") != "" || len(j.Map) != 5 {
 		t.Errorf("map %q", j.Map)
+	}
+	if len(j.WriteMBps) != 5 || len(j.ReadMBps) != 5 || slices.Contains(j.WriteMBps, 0) || slices.Contains(j.ReadMBps, 0) {
+		t.Errorf("rates %v %v", j.WriteMBps, j.ReadMBps)
 	}
 	if j.Done != 2*devSize || j.Total != devSize || j.Bad != 0 || j.Phase != "record" || j.Ended.IsZero() {
 		t.Errorf("job %+v", j)

@@ -139,6 +139,10 @@ type Job struct {
 	// OnStart is called as each block of each pass begins, so a live map
 	// can show the block being written or read right now.
 	OnStart func(pass string, i, n int)
+	// OnBytes is called after each buffer with how far the pass has got,
+	// so the wall moves between blocks.  It runs on the engine's
+	// goroutine: keep it quick.
+	OnBytes func(pass string, done int64)
 	// Check confirms the drive is still the drive.  It's called before
 	// each pass and at least every CheckEvery bytes, with the offset the
 	// run is about to touch.  An error stops the run and lands in
@@ -207,6 +211,7 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 				continue
 			}
 			r.Written += m
+			j.moved("write", off+m)
 		}
 		if err := f.Sync(); err != nil { // the drive's cache is not the platter
 			c.Err = firstErr(c.Err, err)
@@ -237,6 +242,7 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 				c.Err = firstErr(c.Err, err)
 				continue
 			}
+			j.moved("verify", off+m)
 			if bytes.Equal(data[:m], want[:m]) {
 				r.Checked += m
 				continue
@@ -263,6 +269,12 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 func (j *Job) start(pass string, i, n int) {
 	if j.OnStart != nil {
 		j.OnStart(pass, i, n)
+	}
+}
+
+func (j *Job) moved(pass string, done int64) {
+	if j.OnBytes != nil {
+		j.OnBytes(pass, done)
 	}
 }
 

@@ -204,7 +204,7 @@
 <div class="dos">
   <div class="dos-bar"><span>Za Wiper</span><span>{{$.Key}}</span></div>
   <div class="dos-field">
-    <div class="dos-map dos-cells" data-field="map" data-cells role="img" aria-label="Surface map: one cell per 1 GiB block">{{cells .Map}}</div>
+    <div class="dos-map dos-cells" data-field="map" data-cells role="img" aria-label="Surface map: {{.Scale}}">{{cells .Map}}</div>
   </div>
   <div class="dos-boxes">
     <section class="dos-box">
@@ -213,6 +213,8 @@
       <dl class="dos-facts">
         <dt>Elapsed</dt><dd data-field="elapsed">{{.Elapsed}}</dd>
         <dt>ETA</dt><dd data-field="eta">{{.ETA}}</dd>
+        <dt>Written</dt><dd data-field="written">{{.Written}}</dd>
+        <dt>Verified</dt><dd data-field="checked">{{.Checked}}</dd>
         <dt>Rate</dt><dd data-field="rate">{{.Rate}}</dd>
         <dt>Temp</dt><dd data-field="temp">{{.Temp}}</dd>
         <dt>Errors</dt><dd data-field="errors">{{.Errors}}</dd>
@@ -225,13 +227,21 @@
       <ul class="dos-legend">
         <li><span class="c-todo">░</span> Not reached</li>
         <li><span class="c-cur">W</span> Writing</li>
-        <li><span class="c-written">▓</span> Written</li>
-        <li><span class="c-cur">R</span> Reading back</li>
-        <li><span class="c-verified">█</span> Verified</li>
-        <li><span class="c-slow">▒</span> Slow</li>
+        <li><span class="c-written">■</span> Written</li>
+        <li><span class="c-cur">r</span> Reading back</li>
+        <li><span class="c-verified">■</span> Verified</li>
+        <li><span class="c-slow">■</span> Slow</li>
         <li><span class="c-bad">B</span> Bad</li>
       </ul>
-      <p class="dos-center">1 block = 1 GiB</p>
+      <p class="dos-center" data-field="scale">{{.Scale}}</p>
+    </section>
+    <section class="dos-box dos-wide">
+      <h3>Throughput</h3>
+      <div class="dos-trace" role="img" aria-label="Speed across the drive, outer edge first: cyan as written, white as read back">
+        <pre class="dos-axis" data-field="axis" aria-hidden="true">{{.Axis}}</pre>
+        <pre class="dos-plot" data-field="trace" data-trace aria-hidden="true">{{trace .Trace}}</pre>
+      </div>
+      <p class="dos-center dos-note">MB/s · outer edge → inner · <span class="t-w">■</span> write <span class="t-r">■</span> read-back</p>
     </section>
   </div>
   <div class="dos-foot"><span data-field="phase">{{.Phase}}</span></div>

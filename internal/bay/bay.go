@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +68,8 @@ func (b *Bay) Status() model.Snapshot {
 	s := b.snap
 	if s.Job != nil {
 		j := *s.Job
+		// The job's rates fill in place; the copy can't share them.
+		j.WriteMBps, j.ReadMBps = slices.Clone(j.WriteMBps), slices.Clone(j.ReadMBps)
 		s.Job = &j
 	}
 	return s

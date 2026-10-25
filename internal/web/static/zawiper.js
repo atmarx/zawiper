@@ -6,8 +6,8 @@
   // The DEFRAG glyph for each cell byte.  web/surface.go holds the same
   // table; keep the two in step.
   const GLYPHS = {
-    ".": ["░", "todo"], W: ["W", "cur"], R: ["R", "cur"],
-    w: ["▓", "written"], v: ["█", "verified"], s: ["▒", "slow"], B: ["B", "bad"],
+    ".": ["░", "todo"], W: ["W", "cur"], R: ["r", "cur"],
+    w: ["■", "written"], v: ["■", "verified"], s: ["■", "slow"], B: ["B", "bad"],
   };
 
   function cells(el, map) {
@@ -26,6 +26,33 @@
     }
     el.replaceChildren(frag);
     el.dataset.drawn = map;
+  }
+
+  // The throughput graph: TraceRows in web/surface.go draws the same rows
+  // from the same string; keep the two in step.
+  const ROWS = 6;
+  function trace(el, enc) {
+    if (el.dataset.drawn === enc) return;
+    const frag = document.createDocumentFragment();
+    for (let row = ROWS - 1; row >= 0; row--) {
+      let span = null, cls = "";
+      for (let c = 0; c + 1 < enc.length; c += 2) {
+        let lv = enc[c + 1], k = "t-r";
+        if (lv === "-") { lv = enc[c]; k = "t-w"; }
+        const h = lv.charCodeAt(0) - 48;
+        const g = h >= 2 * row + 2 ? "█" : h === 2 * row + 1 ? "▄" : " ";
+        if (k !== cls) {
+          span = document.createElement("span");
+          span.className = k;
+          frag.appendChild(span);
+          cls = k;
+        }
+        span.textContent += g;
+      }
+      if (row > 0) frag.appendChild(document.createTextNode("\n"));
+    }
+    el.replaceChildren(frag);
+    el.dataset.drawn = enc;
   }
 
   const regions = [...document.querySelectorAll("[data-fragment]")];
@@ -72,6 +99,7 @@
           const v = b.live[f.dataset.field];
           if (typeof v !== "string") return;
           if ("cells" in f.dataset) cells(f, v);
+          else if ("trace" in f.dataset) trace(f, v);
           else if (f.textContent !== v) f.textContent = v;
         });
       });
