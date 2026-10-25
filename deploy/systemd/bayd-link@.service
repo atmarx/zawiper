@@ -48,9 +48,10 @@ PrivateDevices=yes
 DevicePolicy=closed
 
 # Files: read-only everywhere but the spool.  The socket connects fine on a
-# read-only mount.
+# read-only mount.  "-" because the namespace is built for ExecStartPre too,
+# before it has made the spool; ExecStart gets a fresh one that has it.
 ProtectSystem=strict
-ReadWritePaths=/var/lib/zawiper/%i/spool
+ReadWritePaths=-/var/lib/zawiper/%i/spool
 ProtectHome=yes
 PrivateTmp=yes
 

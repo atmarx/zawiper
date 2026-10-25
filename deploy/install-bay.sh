@@ -96,7 +96,7 @@ if [[ -f /etc/zawiper/bay.toml ]]; then
 fi
 
 # --- The zawiper user, directories, the sg driver -------------------------
-install -m 0644 deploy/sysusers.d/zawiper.conf /etc/sysusers.d/zawiper.conf
+install -D -m 0644 deploy/sysusers.d/zawiper.conf /etc/sysusers.d/zawiper.conf
 systemd-sysusers /etc/sysusers.d/zawiper.conf
 install -d -m 0755 /etc/zawiper "$BAYS" "$TLS"
 if [[ -n "$HUB" || ! -f /etc/zawiper/link.env ]]; then
