@@ -85,6 +85,16 @@ Partitions come and go while the unit runs (the read finds them; a wipe destroys
 
 Nothing on the page stops a run (spec §4.3).  A person with root on the dock host can: `systemctl stop bayd@<bay>`.  The job comes back INTERRUPTED, like a power cut.
 
+### Holding a bay
+
+A stopped `bayd@` doesn't stay stopped.  Any udev change on the drive starts it again, and `blockdev --setrw` is one.  To work on a drive by hand, mask it until you're done:
+
+```
+systemctl mask --runtime --now bayd@<bay>
+…
+systemctl unmask --runtime bayd@<bay> && systemctl start bayd@<bay>
+```
+
 ## Migrating dock-host from Phase 1
 
 Phase 1 is one `bayd.service`, `/etc/zawiper/bay.toml`, a `zaweb` container on the same VM, and records in `/srv/zawiper`.

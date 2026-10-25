@@ -41,7 +41,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
   - **Every sanitization is verified,** and every certificate names the level, the technique, and the standard clause.
   - **Flash only ever gets firmware sanitize.**  An overwrite proves nothing on an SSD.
   - We never claim Purge when the command wasn't available or didn't get through the bridge.
-  - 9VPAX9NA (ATA8-ACS, which predates SANITIZE) offers only ATA Security Erase.  IEEE 2883 counts it as Purge in Enhanced Erase mode (§8.4.3.2.1) and as Clear in Normal mode (§8.4.2.3), and recommends neither without the manufacturer confirming the model's implementation.  Whether the USB bridge passes it is open (§11).
+  - 9VPAX9NA (ATA8-ACS, which predates SANITIZE) offers only ATA Security Erase.  IEEE 2883 counts it as Purge in Enhanced Erase mode (§8.4.3.2.1) and as Clear in Normal mode (§8.4.2.3), and recommends neither without the manufacturer confirming the model's implementation.  The ASM1156 bridge passes it (2026-10-25, §11).
 
 ## 2. Decisions (xram, 2026-10-23 and 24)
 
@@ -70,7 +70,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 - **Slot 0 once reported a placeholder size** (4.14 GB for two different drives).  Refuse a drive whose block size doesn't match what SMART reports, or whose SMART can't be read.
 - **`smartctl -d sat` works from inside the VM.**
 - **Key everything on the SMART serial.**  The kernel's serial was all zeros with two drives in the enclosure.
-- **Still unmeasured:** ATA security erase through this bridge, sustained write and verify throughput, and a udev rule that authorizes storage interfaces only on that port.  Phase 1 measures the first two on the test drive.
+- **ATA Security Erase gets through this bridge** (§11).  Still unmeasured: sustained write and verify throughput, and a udev rule that authorizes storage interfaces only on that port.
 
 ## 4. Safety
 
@@ -333,7 +333,16 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - **Purge for ATA (§8.4.3.2)** is crypto scramble, BLOCK ERASE EXT, OVERWRITE EXT, or Security Erase Unit in Enhanced mode.  **Purge for SCSI (§8.4.3.3)** is SANITIZE only; FORMAT UNIT is Clear.
   - **Verification (§7):** for Clear, sampling is enough (§7.3: at least 5% at random, or two random blocks in each of 10,000 sections plus the first and last).  For Purge, full verification (§7.2).  Our full read-back covers both.  zverify's default now samples per §7.3.
   - **Still open:** map each bay type to the sanitize commands it actually passes through.  The Accessible Max Address, zone and depopulation checks for newer drives.
-  - Test ATA Security Erase through the ASMedia bridge on a drive we can afford to brick.  A failed erase can leave the drive locked with the temporary password.
+  - **ATA Security Erase through the ASM1156, tested 2026-10-25** on 9VPAX9NA, a drive we could afford to brick.  By hand, outside bayd:
+    1. 65 one-MiB canaries written across the disk.
+    2. `hdparm --security-set-pass`, then `--security-erase-enhanced` as a transient systemd unit.
+    3. 161 min 28 s, against the drive's own 164-minute estimate.  Exit 0, no USB resets.
+    - Every canary is gone.  The drive wrote a vendor pattern, `33 cc 55 aa` repeated, start to end.  Security came back "not enabled", with no password left behind.
+    - The drive has no SANITIZE feature set, so Enhanced Security Erase is its only Purge.  It reaches remapped sectors, which our overwrite can't.  Its pattern is fixed and known, so a full read can verify it (§7.2).
+  - **Still open for a Purge job in bayd:**
+    - What the full read checks.  It could look for that drive's fixed pattern, or check that none of a set of pre-erase canaries survived.
+    - How a record cites the manufacturer's confirmation that §8.4.3.2.1 asks for.
+    - What the bay does if the bridge drops the command mid-erase.  The drive then stays locked with a password bayd knows, so bayd can unlock it and disable security.
 - **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.  xram has a PCIe RAID card to try.  It qualifies only if it runs as a plain HBA (IT firmware, or a mode that loads `mpt3sas`/`mpt2sas`, not `megaraid_sas`).  It can go straight into a host or be passed through to a VM.
   - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.
   - The HBA gives full SCSI health data, `sg_format` for 520-byte drives, and SANITIZE.  That's the Purge route.
