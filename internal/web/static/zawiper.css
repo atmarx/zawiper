@@ -86,8 +86,20 @@ main { max-width: 52rem; margin: 0 auto; padding: 1.25rem 16px 3rem; }
 .state-reading .shape { border-radius: 50%; animation: pulse 1s infinite alternate; }
 .state-present { color: var(--ok); }
 .state-present .shape { border-radius: 50%; }
+.state-running { color: #fff; background: var(--red); border-color: var(--red); }
+.state-running .shape { clip-path: polygon(0 0, 100% 50%, 0 100%); animation: pulse 1s infinite alternate; }
+.state-done { color: var(--ok); background: var(--ok-bg); }
+.state-done .shape { clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%); }
+.state-failed { color: var(--red); background: var(--red-bg); }
+.state-failed .shape { clip-path: polygon(20% 0, 50% 30%, 80% 0, 100% 20%, 70% 50%, 100% 80%, 80% 100%, 50% 70%, 20% 100%, 0 80%, 30% 50%, 0 20%); }
+.state-interrupted { color: var(--hazard-ink); background: var(--hazard-bg); }
+.state-interrupted .shape { background: linear-gradient(90deg, currentColor 35%, transparent 35% 65%, currentColor 65%); }
+.state-alarm { color: #fff; background: var(--red); border-color: var(--red); }
+.state-alarm .shape { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.state-offline { color: var(--muted); border-style: dashed; }
+.state-offline .shape { background: none; border: 2px dashed currentColor; }
 @keyframes pulse { to { opacity: .2; } }
-@media (prefers-reduced-motion: reduce) { .state-reading .shape { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .state-reading .shape, .state-running .shape { animation: none; } }
 
 .card {
   background: var(--surface);
@@ -194,4 +206,183 @@ tr.flag td { background: var(--hazard-bg); color: var(--hazard-ink); }
   padding: .75rem;
   border: 2px solid var(--ink);
   background: var(--surface);
+}
+
+/* ---- Phase 2: the wall, the endings, and DEFRAG. ---- */
+
+/* IBM VGA 8x16, from VileR's Ultimate Oldschool PC Font Pack (int10h.org),
+   CC BY-SA 4.0.  See fonts/LICENSE.txt and fonts/README.txt. */
+@font-face {
+  font-family: "Px437 IBM VGA 8x16";
+  src: url("fonts/Web437_IBM_VGA_8x16.woff") format("woff");
+  font-display: swap;
+}
+:root {
+  --dos: "Px437 IBM VGA 8x16", "Perfect DOS VGA 437", ui-monospace, Menlo, Consolas, monospace;
+  /* The sixteen CGA colors, the ones DEFRAG had to work with. */
+  --cga-blue: #0000aa;
+  --cga-cyan: #00aaaa;
+  --cga-red: #aa0000;
+  --cga-gray: #aaaaaa;
+  --cga-dark: #555555;
+  --cga-lblue: #5555ff;
+  --cga-lcyan: #55ffff;
+  --cga-yellow: #ffff55;
+  --cga-white: #ffffff;
+}
+html { overflow-x: clip; }
+
+.crumbs a { color: var(--muted); }
+.bay-key { font-weight: 700; }
+.notice {
+  border: 2px solid var(--hazard); background: var(--hazard-bg); color: var(--hazard-ink);
+  padding: .6rem 1rem; font-weight: 600;
+}
+
+/* The wall: one tile a bay, grouped by host. */
+.host { margin-bottom: 1.5rem; }
+.host-name { font-family: var(--mono); text-transform: none; letter-spacing: .04em; margin: 0 0 .5rem; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .75rem; }
+.tile {
+  display: flex; flex-direction: column; gap: .3rem;
+  color: var(--ink); text-decoration: none;
+  background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--ink);
+  padding: .75rem .9rem; min-height: 9rem;
+}
+.tile:hover { border-color: var(--ink); }
+.tile:focus-visible { outline: 3px solid var(--hazard); outline-offset: 2px; }
+.tile-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.tile-head .state { font-size: .75rem; }
+.tile-name { font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
+.tile-model { font-size: .9rem; overflow-wrap: anywhere; }
+.tile-serial { font-size: 1.35rem; line-height: 1.1; }
+.tile-serial .serial-head { font-size: .8rem; }
+.tile-line { margin: auto 0 0; font-size: .9rem; }
+.tile-present { border-left-color: var(--ok); }
+.tile-warn { border-left-color: var(--hazard); }
+.tile-warn .why { color: var(--hazard-ink); }
+.tile-running { border-left-color: var(--red); }
+.tile-done { border-left-color: var(--ok); }
+.tile-failed, .tile-alarm { border-left-color: var(--red); }
+.tile-alarm { background: var(--red-bg); }
+.tile-interrupted { border-left-color: var(--hazard); }
+.tile-offline { border-style: dashed; border-left-style: dashed; border-left-color: var(--muted); color: var(--muted); background: transparent; }
+.tile-offline .serial-tail { font-weight: 400; }
+
+/* RUNNING: the one thing anyone in the room needs to read. */
+.pull {
+  margin: 0 0 1rem; padding: .9rem 1rem;
+  background: repeating-linear-gradient(-45deg, var(--hazard) 0 14px, #1d1b17 14px 28px);
+}
+.pull strong, .pull span { display: block; background: var(--surface); color: var(--ink); padding: .2rem .6rem; width: fit-content; max-width: 100%; }
+.pull strong { font-size: 1.6rem; text-transform: uppercase; letter-spacing: .04em; color: var(--red); }
+.pull span { margin-top: .4rem; }
+
+/* The endings. */
+.drivehead { margin: .5rem 0; }
+.drivehead .model { font-weight: 600; }
+.drivehead .serial-big { margin: .1rem 0 .5rem; }
+.ending { background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--ok); padding: 1rem 1.25rem; }
+.headline { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .75rem; margin: .75rem 0; }
+.headline dt { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+.headline dd { margin: 0; font-family: var(--mono); font-weight: 700; font-size: 1.1rem; }
+.evidence-text {
+  white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: .9rem;
+  background: var(--surface); color: var(--ink); border: 1px solid currentColor; padding: .6rem .75rem; margin: .5rem 0;
+}
+.refusals p { margin: .3rem 0 0; }
+
+/* ALARM: a full-width stop.  It breaks out of the column on purpose. */
+.stop {
+  margin: 0 calc(50% - 50vw) 1.5rem; padding: 1.5rem 16px;
+  background: var(--red); color: #fff;
+  border-block: 10px solid; border-image: repeating-linear-gradient(-45deg, #fff 0 12px, var(--red) 12px 24px) 10;
+}
+.stop-inner { max-width: 52rem; margin: 0 auto; }
+.stop-word { font-family: var(--mono); font-size: 3rem; font-weight: 800; letter-spacing: .3em; margin: 0; line-height: 1; }
+.stop .evidence-text { background: rgba(0, 0, 0, .25); color: #fff; border-color: #fff; }
+.btn-stop { background: #fff; color: var(--red); border-color: #fff; }
+.btn-stop:hover:not(:disabled) { background: var(--red-bg); }
+
+/* The confirm (§4.2). */
+.btn-solid { background: var(--red); color: #fff; }
+.btn-solid:hover:not(:disabled) { background: var(--red); filter: brightness(1.1); }
+.confirm {
+  width: min(36rem, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--surface); color: var(--ink);
+  border: 2px solid var(--ink); border-top: 8px solid var(--red); padding: 1.25rem;
+}
+.confirm::backdrop { background: rgba(20, 19, 17, .7); }
+.confirm h2 { text-transform: none; letter-spacing: 0; font-size: 1.25rem; margin: 0 0 .5rem; }
+.confirm-serial { font-size: 1.5rem; margin: 0 0 .5rem; }
+.confirm .actions { justify-content: flex-end; }
+.confirm-warn { border-top-color: var(--hazard); background: var(--hazard-bg); color: var(--hazard-ink); }
+.confirm-warn h2 { color: var(--ink); }
+.confirm-backup { border-left: 4px solid var(--hazard); padding-left: .6rem; }
+
+/* DEFRAG (§6.5): text-mode rows on a blue field, gray frames, a status box
+   and a legend.  Sizes stay in whole pixels so the VGA font stays crisp. */
+.dos {
+  font-family: var(--dos); font-size: 16px; line-height: 16px;
+  background: var(--cga-blue); color: var(--cga-gray);
+  border: 2px solid #000; margin: 1rem 0;
+  -webkit-font-smoothing: none; font-smooth: never;
+}
+.dos-bar, .dos-foot {
+  display: flex; justify-content: space-between; gap: 1ch;
+  background: var(--cga-gray); color: #000; padding: 0 1ch; white-space: nowrap; overflow: hidden;
+}
+.dos-foot { white-space: normal; }
+.dos-field { padding: 8px 1ch; }
+.dos-map {
+  border: 4px double var(--cga-gray); padding: 4px 1ch;
+}
+.dos-cells { white-space: normal; word-break: break-all; overflow-wrap: anywhere; line-break: anywhere; letter-spacing: 0; }
+.dos-cells span { white-space: normal; }
+.c-todo { color: var(--cga-gray); }
+.c-written { color: var(--cga-lcyan); }
+.c-verified { color: var(--cga-white); background: var(--cga-white); } /* no hairlines between solid blocks */
+.c-slow { color: var(--cga-yellow); }
+.c-cur { color: #000; background: var(--cga-yellow); animation: blink 1s steps(1) infinite; }
+.c-bad { color: var(--cga-white); background: var(--cga-red); }
+.c-unk { color: #ff55ff; }
+@keyframes blink { 50% { background: var(--cga-white); } }
+@media (prefers-reduced-motion: reduce) { .c-cur { animation: none; } }
+
+.dos-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 2ch; padding: 8px 1ch 16px; }
+.dos-box {
+  position: relative; background: var(--cga-gray); color: #000;
+  border: 4px double #000; outline: 4px solid var(--cga-gray);
+  padding: 16px 1ch 8px; margin: 4px; box-shadow: 1ch 8px 0 #000;
+}
+.dos-box h3 {
+  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+  margin: 0; padding: 0 1ch; font: inherit; background: var(--cga-gray); color: #000; white-space: nowrap;
+}
+.dos-box p { margin: 0; }
+.dos-center { text-align: center; }
+.dos-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0 2ch; margin: 8px 0; }
+.dos-facts dt::after { content: ":"; }
+.dos-facts dd { margin: 0; text-align: right; }
+.dos-progress { color: var(--cga-blue); margin-top: 4px; overflow: hidden; white-space: nowrap; }
+.dos-legend { list-style: none; margin: 0 0 8px; padding: 0; columns: 2; column-gap: 2ch; }
+.dos-legend li { white-space: nowrap; }
+.dos-legend span { display: inline-block; width: 1ch; text-align: center; background: var(--cga-blue); }
+.dos-legend .c-cur, .dos-legend .c-bad { animation: none; }
+.dos-legend .c-cur { background: var(--cga-yellow); }
+.dos-legend .c-bad { background: var(--cga-red); }
+
+/* The mini map on a tile: the same cells, shrunk to 64. */
+.mini {
+  font-family: var(--dos); font-size: 16px; line-height: 16px;
+  background: var(--cga-blue); padding: 4px; border: 2px solid #000;
+  -webkit-font-smoothing: none;
+}
+
+@media (max-width: 600px) {
+  .dos-boxes { grid-template-columns: 1fr; }
+  .dos-field { padding: 4px; }
+  .dos-map { padding: 2px; }
+  .pull strong { font-size: 1.25rem; }
+  .stop-word { font-size: 2.2rem; }
 }

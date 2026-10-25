@@ -1,10 +1,13 @@
-// Package web is zaweb: the page in front of the bay.  It holds no device
-// and no privilege.  It asks bayd for state and reads records from a
-// read-only mount.
+// Package web is zaweb: the page in front of the bays.  It holds no device
+// and no privilege.  It asks the hub for state, passes commands down to the
+// bays through it, and reads records from a read-only mount.
+//
+// One shared view (spec §4.3): every page draws only what the bays report.
+// There's no per-visitor state, nothing that belongs to one viewer, and no
+// control that stops a run.
 package web
 
 import (
-	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -14,11 +17,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"zawiper/internal/hub"
 	"zawiper/internal/model"
 	"zawiper/internal/proto"
 	"zawiper/internal/records"
@@ -31,21 +36,17 @@ var templateFS embed.FS
 //go:embed static
 var staticFS embed.FS
 
-// Bayd is the part of proto.Client the page needs.
-type Bayd interface {
-	Call(ctx context.Context, v proto.Verb) (*model.Snapshot, error)
-}
-
 type Server struct {
-	Bayd    Bayd
+	Fleet   hub.Fleet
 	Store   *records.Store
 	Hosts   []string // Host headers we answer to; empty answers any (dev only)
 	Version string
 
-	pages map[string]*template.Template
+	pages  map[string]*template.Template
+	events *events
 
 	mu         sync.Mutex
-	lastReread time.Time
+	lastReread map[string]time.Time // per bay key
 }
 
 var funcs = template.FuncMap{
@@ -60,6 +61,9 @@ var funcs = template.FuncMap{
 	"bridge":   records.BridgeLine,
 	"rotation": records.Rotation,
 	"dir":      records.DirName,
+	"cells":    Cells,
+	"phase":    PhaseWords,
+	"rfc3339":  func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	"commas": func(n any) string {
 		switch v := n.(type) {
 		case int:
@@ -98,17 +102,27 @@ var funcs = template.FuncMap{
 
 func (s *Server) Handler() http.Handler {
 	s.pages = map[string]*template.Template{}
-	for _, p := range []string{"bay", "drives", "drive", "record"} {
+	for _, p := range []string{"wall", "bay", "drives", "drive", "record"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).ParseFS(templateFS,
 			"templates/layout.html", "templates/parts.html", "templates/"+p+".html"))
 	}
+	s.events = newEvents(s.Fleet)
+	s.lastReread = map[string]time.Time{}
 	static, _ := fs.Sub(staticFS, "static")
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.bay)
-	mux.HandleFunc("GET /fragment/bay", s.bayFragment)
-	mux.HandleFunc("GET /api/bay", s.apiBay)
-	mux.HandleFunc("POST /api/bay/reread", s.guard(s.reread))
+	mux.HandleFunc("GET /{$}", s.wall)
+	mux.HandleFunc("GET /fragment/wall", s.wallFragment)
+	mux.HandleFunc("GET /bays/{host}/{name}", s.bay)
+	mux.HandleFunc("GET /fragment/bays/{host}/{name}", s.bayFragment)
+	mux.HandleFunc("GET /events", s.events.serve)
+	mux.HandleFunc("GET /api/frame", s.apiFrame)
+	mux.HandleFunc("GET /api/bays", s.apiBays)
+	mux.HandleFunc("GET /api/bays/{host}/{name}", s.apiBay)
+	// Four verbs and no more.  There is no abort, on purpose (spec §4.3).
+	for _, v := range []proto.Verb{proto.Reread, proto.Wipe, proto.Ack, proto.Eject} {
+		mux.HandleFunc("POST /api/bays/{host}/{name}/"+string(v), s.guard(s.act(v)))
+	}
 	mux.HandleFunc("GET /drives", s.drives)
 	mux.HandleFunc("GET /drives/{serial}", s.drive)
 	mux.HandleFunc("GET /drives/{serial}/{id}", s.record)
@@ -139,7 +153,7 @@ func headers(h http.Handler) http.Handler {
 	})
 }
 
-// guard is for anything that asks bayd to act.  A web page open in some LAN
+// guard is for anything that asks a bay to act.  A web page open in some LAN
 // browser can make the browser send a POST here.  It can't set a custom
 // header or a JSON content type without a CORS preflight, which this server
 // never answers, and it can't fake the Origin.
@@ -159,60 +173,213 @@ func (s *Server) guard(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type bayView struct {
-	Snap   *model.Snapshot
-	Err    string
-	Recent []records.Summary
+// lookup finds the bay a URL names.  The key that goes on to the hub is the
+// hub's own, never the string from the URL.
+func (s *Server) lookup(r *http.Request) (hub.Bay, bool) {
+	host, name := r.PathValue("host"), r.PathValue("name")
+	if host == "" || name == "" || strings.ContainsAny(host+name, "/\\") {
+		return hub.Bay{}, false
+	}
+	return s.Fleet.Bay(host + "/" + name)
 }
 
-func (s *Server) bayData(r *http.Request) bayView {
-	v := bayView{}
-	snap, err := s.Bayd.Call(r.Context(), proto.Status)
-	if err != nil {
-		v.Err = err.Error()
+// wipeBody is everything a wipe may say: the drive and the insertion its
+// confirm was drawn from.  Anything more is refused.
+type wipeBody struct {
+	Serial  string    `json:"serial"`
+	Session time.Time `json:"session"`
+}
+
+// act passes one verb down to one bay.  The bay decides; the hub and this
+// page only carry the request.
+func (s *Server) act(v proto.Verb) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		b, ok := s.lookup(r)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		req := proto.Request{Verb: v}
+		if v == proto.Wipe {
+			var body wipeBody
+			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&body); err != nil || body.Serial == "" || body.Session.IsZero() {
+				http.Error(w, "A wipe names the drive and the insertion its confirm was drawn from, and nothing else.", http.StatusBadRequest)
+				return
+			}
+			req.Serial, req.Session = body.Serial, body.Session
+		}
+		if !b.Online {
+			http.Error(w, "This bay's link is down.", http.StatusConflict)
+			return
+		}
+		if v == proto.Reread {
+			s.mu.Lock()
+			if time.Since(s.lastReread[b.Key]) < 2*time.Second {
+				s.mu.Unlock()
+				http.Error(w, "already re-reading", http.StatusTooManyRequests)
+				return
+			}
+			s.lastReread[b.Key] = time.Now()
+			s.mu.Unlock()
+		}
+		snap, err := s.Fleet.Call(r.Context(), b.Key, req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, snap)
 	}
-	v.Snap = snap
+}
+
+func (s *Server) recent(n int) []records.Summary {
+	if s.Store == nil {
+		return nil
+	}
 	all, _ := s.Store.Drives()
-	if len(all) > 5 {
-		all = all[:5]
+	if len(all) > n {
+		all = all[:n]
 	}
-	v.Recent = all
-	return v
+	return all
+}
+
+func (s *Server) wall(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "wall", "layout", map[string]any{
+		"Title": "The wall", "Nav": "wall", "W": wallOf(s.Fleet.Bays(), time.Now()),
+		"Recent": s.recent(5), "Version": s.Version,
+	})
+}
+
+func (s *Server) wallFragment(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	s.render(w, "wall", "tiles", wallOf(s.Fleet.Bays(), time.Now()))
 }
 
 func (s *Server) bay(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "bay", "layout", map[string]any{"Title": "The bay", "Nav": "bay", "V": s.bayData(r), "Version": s.Version})
+	b, ok := s.lookup(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	v := viewOf(b, time.Now())
+	var recent []records.Summary
+	if v.State == model.Empty {
+		recent = s.recent(5)
+	}
+	s.render(w, "bay", "layout", map[string]any{
+		"Title": b.Key, "Nav": "wall", "V": v, "Recent": recent, "Version": s.Version,
+	})
 }
 
 func (s *Server) bayFragment(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.lookup(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "bay", "baycard", s.bayData(r))
+	s.render(w, "bay", "baybody", viewOf(b, time.Now()))
+}
+
+// apiFrame is the poll fallback: the same frame /events sends.
+func (s *Server) apiFrame(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(buildFrame(s.Fleet))
+}
+
+func (s *Server) apiBays(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.Fleet.Bays())
 }
 
 func (s *Server) apiBay(w http.ResponseWriter, r *http.Request) {
-	snap, err := s.Bayd.Call(r.Context(), proto.Status)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+	b, ok := s.lookup(r)
+	if !ok {
+		http.NotFound(w, r)
 		return
 	}
-	writeJSON(w, snap)
+	writeJSON(w, b)
 }
 
-func (s *Server) reread(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	if time.Since(s.lastReread) < 2*time.Second {
-		s.mu.Unlock()
-		http.Error(w, "already re-reading", http.StatusTooManyRequests)
-		return
+// A host's bays, for the wall.
+type hostGroup struct {
+	Host  string
+	Tiles []bayView
+}
+
+func wallOf(bays []hub.Bay, now time.Time) []hostGroup {
+	var out []hostGroup
+	for _, b := range bays {
+		if len(out) == 0 || out[len(out)-1].Host != b.Host {
+			out = append(out, hostGroup{Host: b.Host})
+		}
+		g := &out[len(out)-1]
+		g.Tiles = append(g.Tiles, viewOf(b, now))
 	}
-	s.lastReread = time.Now()
-	s.mu.Unlock()
-	snap, err := s.Bayd.Call(r.Context(), proto.Reread)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+	return out
+}
+
+// bayView is one bay, ready to draw.
+type bayView struct {
+	hub.Bay
+	State  model.State // Offline when the link is down, whatever Snap says
+	Sig    string
+	Live   *Live // the surface map and its numbers, when there's a job
+	Path   string
+	API    string
+	Wipe   bool   // the Wipe button is live
+	WhyNot string // and if not, why
+}
+
+func viewOf(b hub.Bay, now time.Time) bayView {
+	v := bayView{Bay: b, State: stateOf(b), Sig: Sig(b)}
+	v.Path = "/bays/" + url.PathEscape(b.Host) + "/" + url.PathEscape(b.Name)
+	v.API = "/api" + v.Path
+	if j := b.Snap.Job; j != nil {
+		v.Live = LiveOf(j, now)
+		// Once it's over, the bottom line says how it ended, not what it was doing.
+		switch v.State {
+		case model.Done:
+			v.Live.Phase = "Done.  Every block written, read back, and compared."
+		case model.Failed:
+			v.Live.Phase = "Failed during: " + PhaseWords(j.Phase)
+		case model.Interrupted:
+			v.Live.Phase = "Interrupted during: " + PhaseWords(j.Phase)
+		case model.Alarm:
+			v.Live.Phase = "Stopped by bayd during: " + PhaseWords(j.Phase)
+		}
 	}
-	writeJSON(w, snap)
+	v.Wipe, v.WhyNot = wipeable(b)
+	return v
+}
+
+func stateOf(b hub.Bay) model.State {
+	if !b.Online {
+		return model.Offline
+	}
+	return b.Snap.State
+}
+
+// wipeable says whether the Wipe button should be live.  It's only the
+// page's opinion: bayd checks everything again when the wipe arrives.
+func wipeable(b hub.Bay) (bool, string) {
+	s := b.Snap
+	switch {
+	case !b.Online:
+		return false, "This bay's link is down."
+	case s.State != model.Present:
+		return false, "There's no drive ready."
+	case len(s.Refusals) > 0:
+		return false, "Za Wiper won't act on this drive."
+	case s.Drive == nil || s.Drive.Serial() == "":
+		return false, "The drive didn't give a serial to confirm against."
+	case s.Session.IsZero():
+		return false, "The bay didn't say when this drive went in."
+	case !slices.Contains(b.Caps, "wipe"):
+		return false, "This bay isn't set up to wipe."
+	}
+	return true, ""
 }
 
 func (s *Server) drives(w http.ResponseWriter, r *http.Request) {

@@ -1,82 +1,240 @@
 {{define "content"}}
-<section id="bay" data-poll="/fragment/bay" aria-live="polite">
-{{template "baycard" .V}}
+<p class="crumbs"><a href="/">Wall</a> / {{.V.Host}} /</p>
+<p id="notice" class="notice" role="status" hidden></p>
+<section id="bay" data-fragment="/fragment{{.V.Path}}">
+{{template "baybody" .V}}
 </section>
+<p id="say" class="sr" role="status" aria-live="polite"></p>
+{{if .Recent}}{{template "recent" .Recent}}{{end}}
 {{end}}
 
-{{define "baycard"}}
-{{if .Err}}
-<div class="alarm" role="alert"><strong>Can't reach bayd.</strong>  {{.Err}}</div>
-{{end}}
-{{with .Snap}}
+{{define "baybody"}}
+<div class="bay-body" data-key="{{.Key}}" data-sig="{{.Sig}}" data-state="{{.State}}">
 <div class="bayline">
-  <span class="state state-{{lower .State}}"><span class="shape" aria-hidden="true"></span>{{.State}}</span>
-  <span class="muted">{{.Bay}}</span>
+  {{template "state" .State}}
+  <span class="mono bay-key">{{.Key}}</span>
 </div>
+<p class="alarm" data-error role="alert" hidden></p>
 
-{{if eq .State "EMPTY"}}
+{{if eq .State "OFFLINE"}}
+  <p class="lede">This bay's link is down.  Last heard {{when .Seen}}.</p>
+  <p>A job that was running carries on without the link; the disk side doesn't need the hub.  When the link is back, this page catches up on its own.</p>
+
+{{else if eq .State "EMPTY"}}
   <p class="lede">Nothing in the bay.  The viper is hungry.</p>
-  {{with .Message}}<p class="muted">{{.}}</p>{{end}}
+  {{with .Snap.Message}}<p class="muted">{{.}}</p>{{end}}
+
 {{else if eq .State "READING"}}
   <p class="lede">Reading the drive<span class="dots">…</span></p>
-  <p class="muted">{{.Message}}</p>
-{{else}}
-  {{with .Refusals}}
-  <div class="refusals" role="alert">
-    <strong>Za Wiper won't act on this.</strong>
-    <ul>{{range .}}<li>{{.}}</li>{{end}}</ul>
+  <p class="muted mono">{{.Snap.Message}}</p>
+
+{{else if eq .State "RUNNING"}}
+  <div class="pull" role="alert">
+    <strong>Do not pull the drive.</strong>
+    <span>The wipe runs to the end on its own.  Nothing on this page can stop it, and nothing needs to.</span>
   </div>
-  {{end}}
-  {{with .Devices}}<ul class="mono">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  {{template "defrag" .}}
 
-  {{with .Drive}}
-  <article class="card{{if .LooksLikeBackup}} card-warn{{end}}">
-    <div class="card-head">
-      <div>
-        <h1 class="model">{{if .SMART}}{{.SMART.Model}}{{else}}Unknown drive{{end}}</h1>
-        {{if .SMART}}<div class="muted">{{.SMART.Family}}</div>{{end}}
-      </div>
-      <div class="cap">{{size .Size}}</div>
-    </div>
-    {{if .SMART}}<div class="serial-big">{{template "serial" .SMART.Serial}}</div>{{end}}
-
-    <dl class="facts">
-      {{if .SMART}}
-      <dt>Health</dt><dd>{{template "badge" .Health.Grade}}</dd>
-      <dt>Type</dt><dd>{{rotation .SMART.RotationRate}}</dd>
-      <dt>Power-on</dt><dd>{{commas .SMART.PowerOnHours}} h · {{commas .SMART.PowerCycles}} cycles</dd>
-      <dt>Temp</dt><dd>{{.SMART.TempC}} °C</dd>
-      {{end}}
-      <dt>Bridge</dt><dd>{{bridge .Bridge}}</dd>
-      <dt>Device</dt><dd class="mono">{{.Dev}}{{if .ReadOnly}} · read-only{{end}}</dd>
+{{else if eq .State "DONE"}}
+  {{template "drivehead" .}}
+  <div class="ending ending-done">
+    <p class="lede"><strong>Wiped and verified.</strong>  Every block was written, then read back and compared.</p>
+    {{with .Live}}
+    <dl class="headline">
+      {{with $.Snap.Drive}}<div><dt>Health</dt><dd>{{template "badge" .Health.Grade}}</dd></div>{{end}}
+      <div><dt>Read back</dt><dd>{{.ReadBack}}</dd></div>
+      <div><dt>Took</dt><dd>{{if .Took}}{{.Took}}{{else}}—{{end}}</dd></div>
+      <div><dt>Average</dt><dd>{{if .Average}}{{.Average}}{{else}}—{{end}}</dd></div>
+      <div><dt>Slow blocks</dt><dd>{{.Slow}}</dd></div>
+      <div><dt>Errors</dt><dd>{{.Errors}}</dd></div>
     </dl>
-
-    {{with .Health.Notes}}<ul class="notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
-
-    <h2>Found on it</h2>
-    {{template "found" .}}
-  </article>
-  {{end}}
-
-  <div class="actions">
-    <button type="button" class="btn" data-reread>Re-read</button>
-    <button type="button" class="btn btn-danger" disabled title="Phase 2">Wipe</button>
-    <button type="button" class="btn btn-danger" disabled title="Phase 3">Wipe + Load</button>
+    {{end}}
+    {{template "recordlink" .}}
   </div>
-  <p class="muted small">Wiping arrives in Phase 2.  Nothing on this page can write to a drive yet.</p>
-  {{if and .RecordID .Drive}}<p><a href="/drives/{{dir .Drive.Serial}}/{{.RecordID}}">This read's record →</a></p>{{end}}
+  {{template "settled" .}}
+  {{template "defrag" .}}
+
+{{else if eq .State "FAILED"}}
+  <div class="alarm evidence" role="alert">
+    <strong>The wipe failed.</strong>  Here's what stopped it, as the bay saw it:
+    {{with .Snap.Job}}
+    <pre class="evidence-text">{{if .Evidence}}{{.Evidence}}{{else}}The bay didn't say.{{end}}</pre>
+    <p class="small">Phase: {{phase .Phase}}{{with $.Live}} · {{.Pct}} of the way through{{end}}.</p>
+    {{end}}
+  </div>
+  <p>Za Wiper stops at the first sign of trouble and doesn't carry on.  This drive is <strong>not</strong> wiped, and its record says so.</p>
+  {{template "drivehead" .}}
+  {{template "recordlink" .}}
+  {{template "settled" .}}
+  {{template "defrag" .}}
+
+{{else if eq .State "INTERRUPTED"}}
+  <div class="refusals" role="alert">
+    <strong>INTERRUPTED.</strong>
+    <p class="lede">The power went out mid-wipe.  I don't know what state this drive is in, and I won't pretend I do.</p>
+  </div>
+  <p>Acknowledging logs it as an incomplete job.  Wipe it again from the start before it goes anywhere.</p>
+  {{template "drivehead" .}}
+  {{template "settled" .}}
+  {{if .Live}}<h2>Where it got to</h2>{{end}}
+  {{template "defrag" .}}
+
+{{else if eq .State "ALARM"}}
+  <div class="stop" role="alert">
+    <div class="stop-inner">
+      <p class="stop-word">STOP</p>
+      <p class="lede"><strong>bayd ended the job itself.</strong>  It saw something it couldn't explain, and it won't guess.</p>
+      {{with .Snap.Job}}<pre class="evidence-text">{{if .Evidence}}{{.Evidence}}{{else}}The bay didn't say why.{{end}}</pre>{{end}}
+      <p>The drive in the bay may not be the one the job started on.  Check it by hand before anything else, then acknowledge.</p>
+      <div class="actions">
+        <button type="button" class="btn btn-stop" data-act="{{.API}}/ack">I've seen this.  Acknowledge</button>
+      </div>
+    </div>
+  </div>
+  {{template "drivehead" .}}
+  {{template "defrag" .}}
+
+{{else}}
+  {{template "present" .}}
+{{end}}
+</div>
+{{end}}
+
+{{define "recordlink"}}
+{{$id := .Snap.RecordID}}{{with .Snap.Job}}{{with .RecordID}}{{$id = .}}{{end}}{{end}}
+{{if and $id .Snap.Drive}}<p><a href="/drives/{{dir .Snap.Drive.Serial}}/{{$id}}">The record →</a>  <span class="muted small">Print it, or save it as a PDF to go with the drive.</span></p>
+{{else}}<p class="muted">The record is on its way to the hub.</p>{{end}}
+{{end}}
+
+{{define "settled"}}
+<div class="actions">
+  <button type="button" class="btn" data-act="{{.API}}/ack">Acknowledge</button>
+  <button type="button" class="btn" data-act="{{.API}}/eject">Eject</button>
+</div>
+{{end}}
+
+{{define "drivehead"}}
+{{with .Snap.Drive}}{{with .SMART}}
+<div class="drivehead">
+  <span class="model">{{.Model}}</span> <span class="muted">· {{size .CapacityBytes}}</span>
+  <div class="serial-big">{{template "serial" .Serial}}</div>
+</div>
+{{end}}{{end}}
+{{end}}
+
+{{define "present"}}
+{{with .Snap.Refusals}}
+<div class="refusals" role="alert">
+  <strong>Za Wiper won't act on this.</strong>
+  <ul>{{range .}}<li>{{.}}</li>{{end}}</ul>
+</div>
+{{end}}
+{{with .Snap.Devices}}<ul class="mono">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+
+{{with .Snap.Drive}}
+<article class="card{{if .LooksLikeBackup}} card-warn{{end}}">
+  <div class="card-head">
+    <div>
+      <h1 class="model">{{if .SMART}}{{.SMART.Model}}{{else}}Unknown drive{{end}}</h1>
+      {{if .SMART}}<div class="muted">{{.SMART.Family}}</div>{{end}}
+    </div>
+    <div class="cap">{{size .Size}}</div>
+  </div>
+  {{if .SMART}}<div class="serial-big">{{template "serial" .SMART.Serial}}</div>{{end}}
+
+  <dl class="facts">
+    {{if .SMART}}
+    <dt>Health</dt><dd>{{template "badge" .Health.Grade}}</dd>
+    <dt>Type</dt><dd>{{rotation .SMART.RotationRate}}</dd>
+    <dt>Power-on</dt><dd>{{commas .SMART.PowerOnHours}} h · {{commas .SMART.PowerCycles}} cycles</dd>
+    <dt>Temp</dt><dd>{{.SMART.TempC}} °C</dd>
+    {{end}}
+    <dt>Bridge</dt><dd>{{bridge .Bridge}}</dd>
+    <dt>Device</dt><dd class="mono">{{.Dev}}{{if .ReadOnly}} · read-only{{end}}</dd>
+  </dl>
+
+  {{with .Health.Notes}}<ul class="notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+
+  <h2>Found on it</h2>
+  {{template "found" .}}
+</article>
+{{end}}
+
+<div class="actions">
+  <button type="button" class="btn" data-act="{{.API}}/reread" data-busy="Re-reading…">Re-read</button>
+  <button type="button" class="btn btn-danger" data-open-confirm{{if not .Wipe}} disabled title="{{.WhyNot}}"{{end}}>Wipe</button>
+  <button type="button" class="btn btn-danger" disabled title="Phase 3">Wipe + Load</button>
+</div>
+{{if .Wipe}}
+<p class="muted small">Wipe asks once, showing what's on the drive.  After that it runs to the end, and nothing on this page can stop it.</p>
+{{template "confirm" .}}
+{{else if .WhyNot}}
+<p class="muted small">Wipe is off: {{.WhyNot}}</p>
+{{end}}
+{{if and .Snap.RecordID .Snap.Drive}}<p><a href="/drives/{{dir .Snap.Drive.Serial}}/{{.Snap.RecordID}}">This read's record →</a></p>{{end}}
+{{end}}
+
+{{/* The confirm (spec §4.2), drawn from this snapshot and nothing newer.
+     It posts the serial and session it was drawn from; bayd refuses if
+     they aren't what it holds now. */}}
+{{define "confirm"}}
+{{with .Snap.Drive}}
+<dialog class="confirm{{if .LooksLikeBackup}} confirm-warn{{end}}" data-url="{{$.API}}/wipe" data-serial="{{.Serial}}" data-session="{{rfc3339 $.Snap.Session}}" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h2 id="confirm-title">Erase {{if .SMART}}{{.SMART.Model}}{{else}}this drive{{end}}, serial {{.Serial}}, {{size .Size}}?</h2>
+    <p class="confirm-serial">{{template "serial" .Serial}}</p>
+    <p class="found-line">Found on it: {{found .}}</p>
+    {{template "partlist" .}}
+    {{with .LooksLikeBackup}}<p class="why confirm-backup">⚠ This looks like a backup drive: {{.}}.  Make sure it's the one you mean.</p>{{end}}
+    <p class="small">Every sector is overwritten, then read back and compared.  What's on it now is gone for good.</p>
+    <p class="alarm small" data-confirm-error role="alert" hidden></p>
+    <div class="actions">
+      <button class="btn" value="cancel" autofocus>Cancel</button>
+      <button type="button" class="btn btn-danger btn-solid" data-confirm>{{if .LooksLikeBackup}}Erase this backup drive{{else}}Erase this drive{{end}}</button>
+    </div>
+  </form>
+</dialog>
 {{end}}
 {{end}}
 
-{{with .Recent}}
-<section class="recent">
-  <h2>Recently in the bay</h2>
-  <ul class="recent-list">
-  {{range .}}
-    <li><a href="/drives/{{dir .Serial}}">{{template "serial" .Serial}}</a> <span class="muted">{{.Model}} · {{size .Capacity}}</span> {{template "badge" .LastGrade}}</li>
-  {{end}}
-  </ul>
-  <p><a href="/drives">All drives →</a></p>
-</section>
+{{/* The surface map, DEFRAG-style (spec §6.5).  While a job runs, /events
+     updates every [data-field] in here without reloading. */}}
+{{define "defrag"}}
+{{with .Live}}
+<div class="dos">
+  <div class="dos-bar"><span>Za Wiper</span><span>{{$.Key}}</span></div>
+  <div class="dos-field">
+    <div class="dos-map dos-cells" data-field="map" data-cells role="img" aria-label="Surface map: one cell per 1 GiB block">{{cells .Map}}</div>
+  </div>
+  <div class="dos-boxes">
+    <section class="dos-box">
+      <h3>Status</h3>
+      <p class="dos-center" data-field="block">{{.Block}}</p>
+      <dl class="dos-facts">
+        <dt>Elapsed</dt><dd data-field="elapsed">{{.Elapsed}}</dd>
+        <dt>ETA</dt><dd data-field="eta">{{.ETA}}</dd>
+        <dt>Rate</dt><dd data-field="rate">{{.Rate}}</dd>
+        <dt>Temp</dt><dd data-field="temp">{{.Temp}}</dd>
+        <dt>Errors</dt><dd data-field="errors">{{.Errors}}</dd>
+      </dl>
+      <p class="dos-center"><span data-field="pct">{{.Pct}}</span> complete</p>
+      <p class="dos-center dos-progress" data-field="bar" aria-hidden="true">{{.Bar}}</p>
+    </section>
+    <section class="dos-box">
+      <h3>Legend</h3>
+      <ul class="dos-legend">
+        <li><span class="c-todo">░</span> Not reached</li>
+        <li><span class="c-cur">W</span> Writing</li>
+        <li><span class="c-written">▓</span> Written</li>
+        <li><span class="c-cur">R</span> Reading back</li>
+        <li><span class="c-verified">█</span> Verified</li>
+        <li><span class="c-slow">▒</span> Slow</li>
+        <li><span class="c-bad">B</span> Bad</li>
+      </ul>
+      <p class="dos-center">1 block = 1 GiB</p>
+    </section>
+  </div>
+  <div class="dos-foot"><span data-field="phase">{{.Phase}}</span></div>
+</div>
 {{end}}
 {{end}}
