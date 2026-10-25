@@ -1,0 +1,50 @@
+# The Za Wiper hub on hub-host: zaweb, the wall of bays and the records.
+# CI (.woodpecker/zawiper.yml) builds the image on this host and copies this
+# file to /opt/zawiper/compose.yml.  By hand, from zawiper/:
+#
+#   docker build -f deploy/Dockerfile -t zawiper/zaweb:latest .
+#   cp deploy/hub/compose.yml /opt/zawiper/ && cd /opt/zawiper && docker compose up -d
+#
+# On the host:
+#   /opt/zawiper/data   the records (in the hourly restic job, like all of
+#                       /opt).  Owned 8460:8460.
+#   /opt/zawiper/tls    ca.crt, hub.crt, hub.key from deploy/ca.sh.  hub.key
+#                       owned 8460, mode 0400.  Never in this repo.
+#
+# The page reaches Caddy over the gateway network, so it gets the
+# private-ranges guard and the WAF and is never published on the host.  The
+# bay links are published directly on 8461: they're mutual TLS, Caddy has
+# nothing to add, and a bay presents its client certificate to zaweb itself.
+name: zawiper
+
+services:
+  zaweb:
+    image: zawiper/zaweb:latest
+    # Built on this host only.  Never pull: a "zawiper/zaweb" on Docker Hub
+    # would be someone else's.
+    pull_policy: never
+    container_name: zaweb
+    restart: unless-stopped
+    user: "8460:8460"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      TZ: America/New_York
+    expose:
+      - "8460"
+    ports:
+      - "8461:8461"
+    volumes:
+      - /opt/zawiper/data:/srv/zawiper
+      - /opt/zawiper/tls:/etc/zawiper/tls:ro
+    # The links listen on :8461 with /etc/zawiper/tls/{ca.crt,hub.crt,hub.key},
+    # zaweb's defaults.
+    command: ["-listen", ":8460", "-records", "/srv/zawiper", "-hosts", "zawiper.example.org"]
+    networks:
+      - gateway
+
+networks:
+  gateway:
+    external: true
+    name: gateway-stack_gateway

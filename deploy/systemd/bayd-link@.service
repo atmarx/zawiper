@@ -1,0 +1,80 @@
+# bayd-link@<bay>: the network side of one bay (spec §8).  It dials out to
+# the hub over mutual TLS and keeps the connection, carries status and
+# commands between the hub and bayd@<bay>'s socket, and uploads the spool.
+# It has no device access at all: the hub, and anyone who owns the hub,
+# reaches a disk only through bayd@'s checks.
+#
+# It runs unprivileged, as zawiper.  bayd@ runs as root with zawiper as its
+# group, so what bayd@ makes is the link's to read without any chown:
+#   /run/zawiper/<bay>/bayd.sock      connect (0660 root:zawiper)
+#   /var/lib/zawiper/<bay>/job.json   read    (0640 root:zawiper)
+#   /var/lib/zawiper/<bay>/spool/     read and delete (0770 root:zawiper)
+# Its own key comes in as a credential: the file stays root-only on disk,
+# and each link sees only its own bay's key, not its neighbours'.
+[Unit]
+Description=Za Wiper bay %i, link to the hub
+Documentation=https://git.example.org/atmarx/the-ark/src/branch/master/docs/za-wiper.md
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/zawiper/bays/%i.toml
+StartLimitIntervalSec=0
+
+[Service]
+# HUB=host:8461, written once by install-bay.sh.
+EnvironmentFile=/etc/zawiper/link.env
+ExecStart=/usr/local/bin/bayd-link -bay %i -hub ${HUB}
+Restart=always
+RestartSec=5
+
+User=zawiper
+Group=zawiper
+UMask=0007
+
+# The state directory and spool, made here too in case the link starts
+# before bayd@ ever has.  "+" runs these as root; the modes match bayd@'s
+# StateDirectory, so systemd never re-owns anything.
+ExecStartPre=+/usr/bin/install -d -m 0750 -g zawiper /var/lib/zawiper/%i
+ExecStartPre=+/usr/bin/install -d -m 0770 -g zawiper /var/lib/zawiper/%i/spool
+
+# TLS: ca.crt and <bay>.crt are public.  <bay>.key is root:root 0600 on
+# disk; LoadCredential copies it, readable by this unit only, and the bind
+# puts it back where bayd-link looks.
+LoadCredential=bay.key:/etc/zawiper/tls/%i.key
+BindReadOnlyPaths=%d/bay.key:/etc/zawiper/tls/%i.key
+
+# Devices: none.  PrivateDevices gives it a /dev with only the pseudo
+# devices; DevicePolicy=closed says the same to the cgroup.
+PrivateDevices=yes
+DevicePolicy=closed
+
+# Files: read-only everywhere but the spool.  The socket connects fine on a
+# read-only mount.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/zawiper/%i/spool
+ProtectHome=yes
+PrivateTmp=yes
+
+# Network: yes, it's the network side.  Unix for bayd's socket.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+[Install]
+WantedBy=multi-user.target
