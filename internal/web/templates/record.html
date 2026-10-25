@@ -1,20 +1,36 @@
 {{define "content"}}
+<link rel="stylesheet" href="/static/certificate.css">
 {{with .R}}
 <p class="crumbs noprint"><a href="/drives">Drives</a> / <a href="/drives/{{$.Dir}}">{{.Serial}}</a> /</p>
 <div class="actions noprint">
-  <button type="button" class="btn" data-print>Print or save PDF</button>
+  <button type="button" class="btn" data-print>{{if $.Cert}}Print the sheet{{else}}Print or save PDF{{end}}</button>
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.md?download">record.md</a>
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.json?download">record.json</a>
+  {{with $.Cert}}{{if .Seal.Signed}}<a class="btn" href="/drives/{{$.Dir}}/{{$.R.ID}}/record.json.sig?download">record.json.sig</a>{{end}}{{end}}
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/smart.txt">smart.txt</a>
   {{if .Before}}<a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/smart-before.txt">smart-before.txt</a>{{end}}
 </div>
 
-<article class="record">
+<article class="record{{if $.Cert}} has-sheet{{end}}">
   <header class="record-head">
     <div class="record-brand">ZA WIPER · DRIVE RECORD</div>
     <h1 class="serial-big">{{template "serial" .Serial}}</h1>
     <p class="lede">{{if .Drive.SMART}}{{.Drive.SMART.Model}}{{end}} · {{size .Drive.Size}} · {{if eq .Kind "inspect"}}Inspected, read only{{else if .Wipe}}Wiped, {{verdict .Wipe}}{{else}}{{.Kind}}{{end}}</p>
   </header>
+
+  {{with $.Cert}}
+  <section class="cert{{if not .ForSale}} cert-nfs{{end}}">
+    <h2>Certificate of sanitization</h2>
+    {{if not .ForSale}}<p class="nfs-line"><strong>Not for sale.</strong>  {{.Why}}</p>{{end}}
+    {{if not .San.Level}}<p><strong>No sanitization is claimed.</strong>  {{.San.Why}}</p>{{end}}
+    {{template "cert-facts" .}}
+    <p class="muted">{{.San.Limits}}</p>
+    <h3>Health before and after</h3>
+    {{template "cert-health" .}}
+    <h3>Check it yourself</h3>
+    {{template "cert-check" .}}
+  </section>
+  {{end}}
 
   <section>
     <h2>Health {{template "badge" .Health.Grade}}</h2>
@@ -89,8 +105,136 @@
   </section>
 
   <footer class="record-foot">
-    {{if not .Wrote}}Nothing was written to this drive.  {{end}}{{if .Wipe}}{{if .Wipe.OK}}Every byte of this drive was overwritten with a keystream from a key that existed only in memory, then read back and compared.  {{end}}{{end}}This record states what Za Wiper observed on the date shown, and nothing more.
+    {{if not .Wrote}}Nothing was written to this drive.  {{end}}{{if .Wipe}}{{if .Wipe.OK}}Every byte of this drive was overwritten with a keystream{{if .Wipe.Key}}, then read back and compared.  The key is published in this record, so anyone can regenerate the stream and check the drive.{{else}} from a key that existed only in memory, then read back and compared.{{end}}  {{end}}{{end}}This record states what Za Wiper observed on the date shown, and nothing more.
   </footer>
 </article>
+
+{{with $.Cert}}
+<section class="sheet-preview">
+  <div class="noprint">
+    <h2>The sheet for the bag</h2>
+    <p class="muted">One US Letter page, in color.  Fold it in half top to bottom with the print outside, then in half again, right side back, so the label faces out.  Tape it to the static bag.</p>
+  </div>
+  <div class="sheet-wrap">
+  <div class="sheet{{if not .ForSale}} sheet-nfs{{end}}">
+
+    <section class="q q-label" aria-label="Label">
+      <div class="q-brand">ZA WIPER{{if .San.Level}} · CERTIFICATE OF SANITIZATION{{end}}</div>
+      {{$n := len .R.Serial}}
+      <div class="lbl-serial {{if le $n 9}}s-xl{{else if le $n 13}}s-l{{else if le $n 18}}s-m{{else}}s-s{{end}}">{{.R.Serial}}</div>
+      <div class="lbl-model">{{.Model}} · {{size .R.Drive.Size}}</div>
+      <div class="lbl-verdict">{{.Verdict}}</div>
+      {{if .ForSale}}
+      <div class="lbl-grade">{{template "badge" .R.Health.Grade}}</div>
+      {{else}}
+      <p class="lbl-why">{{.Why}}</p>
+      {{end}}
+      <dl class="lbl-meta">
+        <dt>Level</dt><dd>{{with .San.Level}}{{.}}, NIST SP 800-88 Rev. 2{{else}}none claimed{{end}}</dd>
+        <dt>Wiped</dt><dd>{{.Date}}</dd>
+      </dl>
+      {{with .Seal.RecordURL}}
+      <div class="lbl-link">
+        {{$.Cert.QR}}
+        <span class="lbl-url">{{.}}</span>
+      </div>
+      {{end}}
+    </section>
+
+    <section class="q q-cert">
+      {{if not .ForSale}}<div class="nfs-band">NOT FOR SALE</div>{{end}}
+      <h2 class="q-title">{{if .San.Level}}Certificate of Sanitization{{else}}Wipe record · no sanitization claimed{{end}}</h2>
+      <h3>Media</h3>
+      <dl class="kv">
+        <dt>Model</dt><dd>{{.Model}}{{with .R.Drive.SMART}}{{with .Family}} <span class="muted">({{.}})</span>{{end}}{{end}}</dd>
+        <dt>Serial</dt><dd class="mono strong">{{.R.Serial}}</dd>
+        {{with .R.Drive.SMART}}{{with .WWN}}<dt>WWN</dt><dd class="mono">{{.}}</dd>{{end}}{{with .Firmware}}<dt>Firmware</dt><dd>{{.}}</dd>{{end}}{{end}}
+        <dt>Capacity</dt><dd>{{size .R.Drive.Size}} <span class="muted">· {{commas .R.Drive.Size}} bytes</span></dd>
+        <dt>Media type</dt><dd>{{.Media}}</dd>
+        <dt>Connected by</dt><dd>{{bridge .R.Drive.Bridge}}</dd>
+      </dl>
+      <h3>Sanitization</h3>
+      {{template "cert-facts" .}}
+      {{if not .ForSale}}<p class="nfs-line">{{.Why}}</p>{{end}}
+      <p class="fine">{{.San.Limits}}</p>
+    </section>
+
+    <section class="q q-map">
+      {{if not .ForSale}}<div class="nfs-band">NOT FOR SALE</div>{{end}}
+      <h3>Surface map</h3>
+      <div class="map-box">{{.Map}}</div>
+      <ul class="map-legend">
+        {{range .Legend}}{{if .Count}}<li><i class="chip {{.Class}}"></i>{{.Label}} <span class="muted">{{commas .Count}}</span></li>{{end}}{{end}}
+      </ul>
+      <p class="fine">One cell is {{size .R.Wipe.Block}}, written then read back, front of the drive at top left.  Write {{pass .R.Wipe false}}; verify {{pass .R.Wipe true}}.</p>
+      <h3>Health before and after <span class="q-grade">{{template "badge" .R.Health.Grade}}</span></h3>
+      {{template "cert-health" .}}
+      {{with .R.Health.Notes}}<ul class="fine notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
+    </section>
+
+    <section class="q q-check">
+      {{if not .ForSale}}<div class="nfs-band">NOT FOR SALE</div>{{end}}
+      <h3>Check it yourself</h3>
+      {{template "cert-check" .}}
+      <p class="fine sheet-foot">This certificate states what Za Wiper observed on the date shown, and nothing more.  Record {{.R.ID}}.</p>
+    </section>
+
+  </div>
+  </div>
+</section>
+{{end}}
+{{end}}
+{{end}}
+
+{{define "cert-facts"}}
+<dl class="kv">
+  {{with .San.Level}}<dt>Level</dt><dd><strong>{{.}}</strong></dd>{{end}}
+  <dt>Technique</dt><dd>{{.San.Technique}}</dd>
+  <dt>Standard</dt><dd>{{.San.Standard}}</dd>
+  <dt>Verification</dt><dd>{{.San.Verify}}</dd>
+  <dt>Result</dt><dd>{{.San.Result}}</dd>
+  <dt>Completed</dt><dd>{{when .R.Wipe.Verified}}</dd>
+  <dt>Tool</dt><dd>{{.R.Software}}</dd>
+  <dt>Performed by</dt><dd>bay {{.R.Bay}} on {{.R.Host}}, unattended</dd>
+</dl>
+{{end}}
+
+{{define "cert-health"}}
+<table class="health">
+  <thead><tr><th></th><th class="num">Before</th><th class="num">After</th></tr></thead>
+  <tbody>
+  {{range .Health}}<tr{{if .Worse}} class="worse"{{end}}><td>{{.What}}</td><td class="num">{{.Before}}</td><td class="num">{{.After}}{{if .Worse}} ▲{{end}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{define "cert-check"}}
+{{with .Seal}}
+{{if .Signed}}
+<p>The record is signed with the hub's key (SSHSIG, Ed25519, namespace <code>za-wiper</code>).</p>
+<dl class="kv">
+  <dt>Key</dt><dd class="mono">{{.Fingerprint}}</dd>
+  {{with .KeyURL}}<dt>Published at</dt><dd class="mono">{{.}}</dd>{{end}}
+  {{with .RecordURL}}<dt>Record</dt><dd class="mono">{{.}}</dd>{{end}}
+</dl>
+<p class="cmd-label">The signature, with OpenSSH, beside <code>record.json</code> and <code>record.json.sig</code>:</p>
+<pre class="cmd">{{.SSHKeygen}}</pre>
+{{else if .Problem}}
+<p class="nfs-line"><strong>The signature on file doesn't hold.</strong>  {{.Problem}}</p>
+{{else}}
+<p><strong>Not signed yet.</strong>  An unsigned certificate is just a nice PDF.</p>
+{{end}}
+{{end}}
+{{if not .San.Level}}
+<p class="fine">There's no clean, whole-drive wipe here to check the drive against.  The record above says why.</p>
+{{else if .Check}}
+<p class="cmd-label">The drive, with zverify (100 random 1 MiB samples; <code>-full</code> for every byte):</p>
+<pre class="cmd">{{.Zverify}}</pre>
+<p class="cmd-label">Every byte, with nothing but OpenSSL and cmp:</p>
+<pre class="cmd">{{.Check}}</pre>
+<p class="fine">The wipe's key is published on purpose.  It regenerates the noise that was written, so anyone can read the drive back against it.  The old data is gone either way; the key only proves it.  Anything written to the drive since, even a partition table, won't match.</p>
+{{else}}
+<p class="fine">This wipe ran before Za Wiper published its keys, so the stream can't be regenerated.  The read-back on this record is the only check.</p>
 {{end}}
 {{end}}
