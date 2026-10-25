@@ -18,7 +18,8 @@
 #   - the gateway-stack_gateway network exists, its Caddy container is
 #     called caddy, and the zawiper.example.org route points at zaweb:8460.
 #
-# Woodpecker substitutes ${...} itself, so shell variables are written $$.
+# Woodpecker substitutes dollar-brace variables itself, even in comments, so
+# shell variables are written with a doubled dollar sign.
 when:
   - event: push
     path:
