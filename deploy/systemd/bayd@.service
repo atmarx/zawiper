@@ -1,0 +1,81 @@
+# bayd@<bay>: the disk side of one bay (spec §8).  udev starts it when the
+# bay's selector matches a disk (61-zawiper.rules, made by bayrules), and a
+# generated drop-in binds it to /dev/zawiper/<bay>, so it stops when the
+# drive leaves.  Nothing enables it; it has no [Install].
+#
+# The scope is the kernel's job, not bayd's.  DevicePolicy=closed and the
+# DeviceAllow= lines below leave this unit, root or not, able to open its own
+# bay's nodes and nothing else.  Partitions and the sg node come and go, so
+# udev adds them with `systemctl set-property --runtime`, by their
+# /dev/zawiper name, as they appear.  systemd resolves those names to
+# device numbers each time the filter is rebuilt, which also covers a
+# re-inserted drive turning up with new numbers.
+[Unit]
+Description=Za Wiper bay %i, disk side
+Documentation=https://git.example.org/atmarx/the-ark/src/branch/master/docs/za-wiper.md
+ConditionPathExists=/etc/zawiper/bays/%i.toml
+# A restarting disk side must never give up: the drive is still in the bay.
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/local/bin/bayd -bay %i
+Restart=always
+RestartSec=2
+# A wipe in progress should end on bayd's terms (INTERRUPTED on its next
+# start) rather than by SIGKILL halfway through writing the state file.
+TimeoutStopSec=30
+
+# Root: it sets the device read-only, mounts to peek, and wipes.  Its group
+# is zawiper, so the socket, the state file and the spool belong to the
+# group bayd-link@ runs in, with no chown anywhere.  UMask=0007 keeps what
+# it writes group-readable, and spool entries group-writable so the link
+# can delete them once the hub has them.
+User=root
+Group=zawiper
+UMask=0007
+
+# /var/lib/zawiper/<bay>: job.json and spool/.  /run/zawiper/<bay>: the
+# socket, and the peek's mount point.  The runtime directory survives a
+# stop, so the link's view of it never points at a deleted directory.
+StateDirectory=zawiper/%i
+StateDirectoryMode=0750
+RuntimeDirectory=zawiper/%i
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/bin/install -d -m 0770 -g zawiper /var/lib/zawiper/%i/spool
+
+# Devices: this bay's nodes, nothing else.  /dev/null and friends come with
+# "closed".  Partitions and -sg arrive by set-property (see above).
+DevicePolicy=closed
+DeviceAllow=/dev/zawiper/%i rw
+DeviceAllow=/dev/zawiper/%i-sg rw
+
+# Network: none.  It talks to its link over a unix socket, and AF_NETLINK
+# is there for uevents.
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+
+# Hardening.  Phase 1's three, plus what the read and the wipe can live
+# without.  What they need: smartctl and blkid on the bay's nodes (SG_IO
+# pass-through wants CAP_SYS_RAWIO, so that stays); blockdev's ioctls;
+# unshare and mount for the peek (CAP_SYS_ADMIN, a mount namespace, a
+# mount point in the runtime directory); and eject may want to write under
+# /sys.  So: no PrivateDevices (it hides the disk), no ProtectKernelTunables
+# (/sys read-only), no RestrictNamespaces, and no ProtectClock (it adds
+# char-rtc to the allow list).  The spool is 0770, not setgid:
+# RestrictSUIDSGID refuses the bit, and bayd's own group is zawiper anyway.
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+# bpf would let a root process take its own device filter off.  The rest is
+# nothing a drive bay does.
+SystemCallFilter=~@clock @cpu-emulation @debug @module @obsolete @raw-io @reboot @swap bpf
+CapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_BOOT CAP_SYS_TIME CAP_SYS_PTRACE CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON CAP_SYSLOG CAP_MAC_ADMIN CAP_MAC_OVERRIDE CAP_AUDIT_CONTROL CAP_AUDIT_WRITE CAP_WAKE_ALARM

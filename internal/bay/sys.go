@@ -9,20 +9,55 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"zawiper/internal/config"
 	"zawiper/internal/model"
 )
 
 // Sys is the real Source: sysfs, blkid, smartctl, blockdev, mount.
 type Sys struct {
+	// The selector: exactly one is set, and only block devices behind it
+	// are the bay's.
+	//
 	// Port is the bay's USB port as this machine's sysfs names it ("10-1").
-	// Only block devices whose sysfs path runs through it are the bay's.
-	Port      string
-	SmartType string // smartctl -d; "sat" for USB-SATA bridges
-	SysBlock  string // "/sys/block"; tests point it elsewhere
+	// Every block device whose sysfs path runs through it is the bay's.
+	Port string
+	// SASPath is the disk's name in /dev/disk/by-path
+	// ("pci-0000:03:00.0-sas-phy2-lun-0").  The disk it names is the bay's,
+	// and so is any other LUN on the same SCSI target, so that the one-LUN
+	// refusal sees it.
+	SASPath string
+
+	SmartType string // smartctl -d; "sat" for USB-SATA bridges, "scsi" for SAS
+	// RunDir is where the peek makes its mount point: /run/zawiper/<bay>,
+	// the unit's RuntimeDirectory, writable under ProtectSystem=strict.
+	RunDir   string
+	SysBlock string // "/sys/block"; tests point it elsewhere
+	ByPath   string // "/dev/disk/by-path"; tests point it elsewhere
+}
+
+// NewSys makes the Source for a configured bay.
+func NewSys(cfg *config.Bay) (*Sys, error) {
+	if cfg == nil {
+		return nil, errors.New("no bay config")
+	}
+	if err := config.ValidName(cfg.Name); err != nil {
+		return nil, err
+	}
+	if (cfg.USBPort == "") == (cfg.SASPath == "") {
+		return nil, fmt.Errorf("bay %s: needs exactly one of usb_port and sas_path", cfg.Name)
+	}
+	return &Sys{
+		Port:      cfg.USBPort,
+		SASPath:   cfg.SASPath,
+		SmartType: cfg.SmartType,
+		RunDir:    filepath.Join("/run/zawiper", cfg.Name),
+	}, nil
 }
 
 func (s *Sys) sysBlock() string {
@@ -32,9 +67,26 @@ func (s *Sys) sysBlock() string {
 	return s.SysBlock
 }
 
+func (s *Sys) byPath() string {
+	if s.ByPath == "" {
+		return "/dev/disk/by-path"
+	}
+	return s.ByPath
+}
+
+func (s *Sys) runDir() string {
+	if s.RunDir == "" {
+		return "/run"
+	}
+	return s.RunDir
+}
+
 // usbDir returns the sysfs directory of the bay's USB device in a block
 // device's resolved path, or "" when the device isn't on the bay's port.
 func (s *Sys) usbDir(real string) string {
+	if s.Port == "" {
+		return ""
+	}
 	segs := strings.Split(real, "/")
 	usb := false
 	for i, seg := range segs {
@@ -48,9 +100,57 @@ func (s *Sys) usbDir(real string) string {
 	return ""
 }
 
+// sasTarget returns the sysfs directory of the SCSI target behind the bay's
+// by-path name ("…/end_device-0:2/target0:0:2"), or "" when nothing is
+// there.  Every block device under it is on the bay.
+func (s *Sys) sasTarget() (string, error) {
+	dev, err := filepath.EvalSymlinks(filepath.Join(s.byPath(), s.SASPath))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	name := filepath.Base(dev)
+	real, err := filepath.EvalSymlinks(filepath.Join(s.sysBlock(), name))
+	if errors.Is(err, os.ErrNotExist) {
+		// A partition, or a node on its way out: not a whole disk.
+		return "", fmt.Errorf("%s points at %s, which isn't a disk", s.SASPath, name)
+	}
+	if err != nil {
+		return "", err
+	}
+	segs := strings.Split(real, "/")
+	for i := len(segs) - 1; i > 0; i-- {
+		if strings.HasPrefix(segs[i], "target") {
+			return strings.Join(segs[:i+1], "/"), nil
+		}
+	}
+	return "", fmt.Errorf("%s (%s) isn't behind a SCSI target", s.SASPath, name)
+}
+
+// selector returns a test for whether a block device's resolved sysfs path
+// is the bay's.
+func (s *Sys) selector() (func(real string) bool, error) {
+	switch {
+	case s.Port != "" && s.SASPath != "":
+		return nil, errors.New("the bay has both a USB port and a SAS path")
+	case s.Port != "":
+		return func(real string) bool { return s.usbDir(real) != "" }, nil
+	case s.SASPath != "":
+		t, err := s.sasTarget()
+		if err != nil || t == "" {
+			return func(string) bool { return false }, err
+		}
+		return func(real string) bool { return strings.HasPrefix(real, t+"/") }, nil
+	}
+	return nil, errors.New("no bay port configured")
+}
+
 func (s *Sys) Devices() ([]Device, error) {
-	if s.Port == "" {
-		return nil, errors.New("no bay port configured")
+	isMine, err := s.selector()
+	if err != nil {
+		return nil, err
 	}
 	ents, err := os.ReadDir(s.sysBlock())
 	if err != nil {
@@ -59,7 +159,7 @@ func (s *Sys) Devices() ([]Device, error) {
 	var out []Device
 	for _, e := range ents {
 		real, err := filepath.EvalSymlinks(filepath.Join(s.sysBlock(), e.Name()))
-		if err != nil || s.usbDir(real) == "" {
+		if err != nil || !isMine(real) {
 			continue
 		}
 		dir := filepath.Join(s.sysBlock(), e.Name())
@@ -80,14 +180,37 @@ func (s *Sys) Bridge(d Device) model.Bridge {
 	if err != nil {
 		return model.Bridge{}
 	}
-	u := s.usbDir(real)
-	return model.Bridge{
-		VendorID:     readStr(filepath.Join(u, "idVendor")),
-		ProductID:    readStr(filepath.Join(u, "idProduct")),
-		Manufacturer: readStr(filepath.Join(u, "manufacturer")),
-		Product:      readStr(filepath.Join(u, "product")),
-		Serial:       readStr(filepath.Join(u, "serial")),
+	if u := s.usbDir(real); u != "" {
+		return model.Bridge{
+			VendorID:     readStr(filepath.Join(u, "idVendor")),
+			ProductID:    readStr(filepath.Join(u, "idProduct")),
+			Manufacturer: readStr(filepath.Join(u, "manufacturer")),
+			Product:      readStr(filepath.Join(u, "product")),
+			Serial:       readStr(filepath.Join(u, "serial")),
+		}
 	}
+	// SAS: the bridge is the HBA, the last PCI function above the disk.
+	if p := pciDir(real); p != "" {
+		return model.Bridge{
+			VendorID:  strings.TrimPrefix(readStr(filepath.Join(p, "vendor")), "0x"),
+			ProductID: strings.TrimPrefix(readStr(filepath.Join(p, "device")), "0x"),
+			Product:   "SAS HBA at " + filepath.Base(p),
+		}
+	}
+	return model.Bridge{}
+}
+
+var pciAddrRE = regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`)
+
+// pciDir returns the deepest PCI function in a sysfs path, or "".
+func pciDir(real string) string {
+	segs := strings.Split(real, "/")
+	for i := len(segs) - 1; i >= 0; i-- {
+		if pciAddrRE.MatchString(segs[i]) {
+			return strings.Join(segs[:i+1], "/")
+		}
+	}
+	return ""
 }
 
 // partitions lists the kernel's partitions of a disk: sdc1, sdc2...
@@ -152,7 +275,7 @@ func (s *Sys) SetRO(d Device) error {
 	return nil
 }
 
-// SetRW clears the read-only flag, for a wipe.  Only zwipe calls it.
+// SetRW clears the read-only flag, for a wipe.
 func (s *Sys) SetRW(d Device) error {
 	for _, n := range append([]string{d.Name}, s.partitions(d)...) {
 		if out, _, err := run(context.Background(), "blockdev", "--setrw", "/dev/"+n); err != nil {
@@ -186,6 +309,9 @@ func (s *Sys) SMART(ctx context.Context, d Device) ([]byte, []byte, error) {
 
 func (s *Sys) Table(ctx context.Context, d Device) (model.Table, error) {
 	t := model.Table{Parts: []model.Part{}}
+	if err := openable(ctx, d.Path); err != nil {
+		return t, err
+	}
 	disk, err := blkid(ctx, d.Path)
 	if err != nil {
 		return t, err
@@ -196,14 +322,47 @@ func (s *Sys) Table(ctx context.Context, d Device) (model.Table, error) {
 		t.Parts = append(t.Parts, model.Part{Path: d.Path, Size: d.Size, FSType: disk["TYPE"], Label: disk["LABEL"], UUID: disk["UUID"]})
 		return t, nil
 	}
+	var denied error
 	for _, n := range s.partitions(d) {
 		p := model.Part{Path: "/dev/" + n, Size: readInt(filepath.Join(s.sysBlock(), d.Name, n, "size")) * 512}
-		if v, err := blkid(ctx, p.Path); err == nil {
+		if err := openable(ctx, p.Path); err != nil {
+			// Say so, rather than let blkid's "nothing found" call it blank.
+			p.FSType = "unreadable"
+			denied = err
+		} else if v, err := blkid(ctx, p.Path); err == nil {
 			p.FSType, p.Label, p.UUID = v["TYPE"], v["LABEL"], v["UUID"]
 		}
 		t.Parts = append(t.Parts, p)
 	}
-	return t, nil
+	return t, denied
+}
+
+// openWait is how long openable waits for the device filter to let a node in.
+var openWait = 10 * time.Second
+
+// openable checks that bayd may open a device node.  Under bayd@.service,
+// the cgroup device filter admits a partition only once udev has added it
+// to the unit (see deploy/bayrules), and that can trail the partition's
+// appearance by a moment.  blkid treats a node it can't open as one with
+// nothing on it, which would make a full partition look blank.  So wait a
+// little for the filter, then fail loudly.
+func openable(ctx context.Context, path string) error {
+	deadline := time.Now().Add(openWait)
+	for {
+		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err == nil {
+			f.Close()
+			return nil
+		}
+		if !errors.Is(err, os.ErrPermission) || time.Now().After(deadline) {
+			return fmt.Errorf("can't open %s (%v), so I can't say what's on it", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // mountOpts are the read-only options per filesystem: nothing replays a
@@ -227,8 +386,10 @@ var mountOpts = map[string]struct{ fs, opts string }{
 // peekScript mounts in a private mount namespace, so the host never sees the
 // mount, measures, looks for backup repositories at the top level, and
 // leaves.  The namespace dies with the process, taking the mount with it.
+// $4 is where the mount point goes: the bay's runtime directory, the one
+// place under /run that bayd@.service may write.
 const peekScript = `
-d=$(mktemp -d /run/zawiper-peek.XXXXXX) || exit 90
+d=$(mktemp -d "$4/peek.XXXXXX") || exit 90
 trap 'umount "$d" 2>/dev/null; rmdir "$d"' EXIT
 mount -t "$1" -o "$2,noexec,nosuid,nodev" "$3" "$d" || exit 91
 df -B1 --output=used "$d" | tail -n 1
@@ -249,7 +410,7 @@ func (s *Sys) Peek(ctx context.Context, p *model.Part) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	out, code, err := runAnyExit(ctx, "unshare", "--mount", "--propagation", "private", "--",
-		"/bin/sh", "-c", peekScript, "peek", m.fs, m.opts, p.Path)
+		"/bin/sh", "-c", peekScript, "peek", m.fs, m.opts, p.Path, s.runDir())
 	if err != nil || code != 0 {
 		p.Peek = fmt.Sprintf("couldn't mount it read-only to look (exit %d): %s", code, firstLine(out))
 		return
