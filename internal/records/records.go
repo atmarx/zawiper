@@ -111,6 +111,17 @@ func (s *Store) SaveWipe(r *Record, raw map[string][]byte) error {
 	return s.save(r, raw)
 }
 
+// SaveInterrupted files a wipe nobody saw end: bayd or its host went down
+// while it ran.  It may have written anything, so Wrote is always true, and
+// it proves nothing about the drive.  r.Wipe is what the state file knew.
+func (s *Store) SaveInterrupted(r *Record, raw map[string][]byte) error {
+	r.Wrote = true
+	if r.Wipe != nil && r.Wipe.Aborted == "" {
+		r.Wipe.Aborted = "stopped when bayd or its host went down"
+	}
+	return s.SaveWipe(r, raw)
+}
+
 func (s *Store) save(r *Record, raw map[string][]byte) error {
 	r.Schema = Schema
 	r.ID = RecordID(r.Started, r.Kind)

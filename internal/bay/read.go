@@ -35,6 +35,13 @@ type Source interface {
 	Table(ctx context.Context, d Device) (model.Table, error)
 	// Peek mounts a filesystem read-only, somewhere private, to measure it.
 	Peek(ctx context.Context, p *model.Part)
+
+	// The job's side.  SetRW clears the read-only flag for a wipe, Forget
+	// drops the kernel's copy of a partition table the wipe destroyed, and
+	// Eject flushes the drive and lets it go.
+	SetRW(d Device) error
+	Forget(d Device) error
+	Eject(d Device) error
 }
 
 // Sanity bounds on size: anything outside is a bridge talking nonsense.
@@ -42,6 +49,19 @@ const (
 	MinSize = 8 << 30
 	MaxSize = 64 << 40
 )
+
+// bounded is a Source with its own idea of a sane size.  Only dev mode has
+// one: its "drive" is a file, so a bridge can't be lying about it.
+type bounded interface {
+	Bounds() (min, max int64)
+}
+
+func bounds(src Source) (int64, int64) {
+	if b, ok := src.(bounded); ok {
+		return b.Bounds()
+	}
+	return MinSize, MaxSize
+}
 
 // Read looks at whatever is on the port.  It writes nothing to the drive.
 func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
@@ -97,8 +117,8 @@ func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
 				records.Size(d.Size), records.Size(info.CapacityBytes))
 		}
 	}
-	if d.Size < MinSize || d.Size > MaxSize {
-		refuse("%s is outside what a real drive in this bay should be (8 GiB to 64 TiB).", records.Size(d.Size))
+	if lo, hi := bounds(src); d.Size < lo || d.Size > hi {
+		refuse("%s is outside what a real drive in this bay should be (%s to %s).", records.Size(d.Size), binary(lo), binary(hi))
 	}
 
 	t, err := src.Table(ctx, d)
@@ -119,6 +139,17 @@ func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
 	}
 	drv.Table = t
 	return s
+}
+
+// binary names a bound the way it was set: 8 GiB, 64 TiB.
+func binary(n int64) string {
+	units := []string{"bytes", "KiB", "MiB", "GiB", "TiB", "PiB"}
+	i := 0
+	for n >= 1024 && n%1024 == 0 && i < len(units)-1 {
+		n /= 1024
+		i++
+	}
+	return fmt.Sprintf("%d %s", n, units[i])
 }
 
 // Cheap backup tells that need no mount.  The peek adds restic and PBS.

@@ -5,8 +5,11 @@ import (
 	"context"
 	"crypto/aes"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +98,64 @@ func TestStop(t *testing.T) {
 	r, _ := j.Run(ctx)
 	if r.OK() || r.Aborted == "" {
 		t.Errorf("%+v", r)
+	}
+}
+
+// The identity check runs before each pass and on schedule, and an error
+// stops the run before the offset it was asked about.
+func TestCheck(t *testing.T) {
+	var offs []int64
+	j := &Job{Path: drive(t), Size: size, Block: blk, Buf: bf, CheckEvery: blk,
+		Check: func(off int64) error { offs = append(offs, off); return nil }}
+	if r, err := j.Run(context.Background()); err != nil || !r.OK() {
+		t.Fatalf("%v %+v", err, r)
+	}
+	want := []int64{0, blk, 2 * blk, 0, blk, 2 * blk}
+	if len(offs) != len(want) {
+		t.Fatalf("checks at %v, want %v", offs, want)
+	}
+	for i := range want {
+		if offs[i] != want[i] {
+			t.Fatalf("checks at %v, want %v", offs, want)
+		}
+	}
+
+	j.Check = func(off int64) error {
+		if off >= blk {
+			return errors.New("the drive says it's someone else")
+		}
+		return nil
+	}
+	r, _ := j.Run(context.Background())
+	if r.OK() || r.Alarm != "the drive says it's someone else" || r.Written != blk || r.Aborted == "" {
+		t.Errorf("alarm %q written %d aborted %q", r.Alarm, r.Written, r.Aborted)
+	}
+}
+
+// OnStart fires before each block, so the live map can show W and R.
+func TestOnStart(t *testing.T) {
+	var seen []string
+	j := &Job{Path: drive(t), Size: size, Block: blk, Buf: bf,
+		OnStart: func(pass string, i, n int) { seen = append(seen, fmt.Sprintf("start %s %d", pass, i)) },
+		OnCell:  func(pass string, i, n int, c Cell) { seen = append(seen, fmt.Sprintf("end %s %d", pass, i)) }}
+	j.Run(context.Background())
+	got := strings.Join(seen, ", ")
+	if !strings.HasPrefix(got, "start write 0, end write 0, start write 1") || !strings.HasSuffix(got, "start verify 2, end verify 2") {
+		t.Errorf("order: %s", got)
+	}
+}
+
+// A buffer bigger than a block, or one that doesn't divide it, must not
+// spill writes into the next block's cell.
+func TestBufferLargerThanBlock(t *testing.T) {
+	p := drive(t)
+	r, err := (&Job{Path: p, Size: size, Block: blk, Buf: blk * 3}).Run(context.Background())
+	if err != nil || !r.OK() || len(r.Cells) != 3 {
+		t.Fatalf("%v %+v", err, r)
+	}
+	r, err = (&Job{Path: p, Size: size, Block: blk, Buf: 3 * bf}).Run(context.Background())
+	if err != nil || !r.OK() {
+		t.Fatalf("%v %+v", err, r)
 	}
 }
 

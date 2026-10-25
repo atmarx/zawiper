@@ -29,6 +29,9 @@ func (f *fake) Bridge(Device) model.Bridge                         { return mode
 func (f *fake) InUse(Device) (string, error)                       { return f.inUse, nil }
 func (f *fake) SetRO(Device) error                                 { f.ro = f.roErr == nil; return f.roErr }
 func (f *fake) Table(context.Context, Device) (model.Table, error) { return f.table, nil }
+func (f *fake) SetRW(Device) error                                 { f.ro = false; return nil }
+func (f *fake) Forget(Device) error                                { return nil }
+func (f *fake) Eject(Device) error                                 { f.devs = nil; return nil }
 func (f *fake) SMART(context.Context, Device) ([]byte, []byte, error) {
 	return f.smart, []byte("text"), nil
 }
