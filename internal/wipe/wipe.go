@@ -31,7 +31,13 @@ const (
 	Block = 1 << 30
 	// buf is one write or read.  It divides Block.
 	buf = 8 << 20
+	// CheckEvery is the most a wipe goes between identity checks (spec
+	// §4.1): before each pass, and at least every 100 GiB.
+	CheckEvery = 100 << 30
 )
+
+// Method is how a wipe overwrites, as the record states it.
+const Method = "AES-256-CTR keystream, one pass, read back and compared"
 
 type Cell struct {
 	Write float64 `json:"write_s"`
@@ -54,6 +60,8 @@ type Result struct {
 	Checked int64  `json:"checked"`
 	Bad     int64  `json:"bad"`
 	Aborted string `json:"aborted,omitempty"`
+	// Alarm is what the identity check said when it stopped the run.
+	Alarm string `json:"alarm,omitempty"`
 	// Key and IV, hex, published so the wipe can be re-checked (Keystream).
 	Key string `json:"key"`
 	IV  string `json:"iv"`
@@ -61,7 +69,7 @@ type Result struct {
 
 // OK is a finished wipe where every byte read back as written.
 func (r *Result) OK() bool {
-	return r.Aborted == "" && r.Bad == 0 && r.Written == r.Size && r.Checked == r.Size
+	return r.Aborted == "" && r.Alarm == "" && r.Bad == 0 && r.Written == r.Size && r.Checked == r.Size
 }
 
 // MBps is the average for a pass, in decimal megabytes a second.
@@ -128,15 +136,24 @@ type Job struct {
 	// memory.  Off only in tests, where the "drive" is a file on tmpfs.
 	Direct bool
 	OnCell Progress
-	// Block and Buf default to the package's; tests shrink them.
-	Block, Buf int64
+	// OnStart is called as each block of each pass begins, so a live map
+	// can show the block being written or read right now.
+	OnStart func(pass string, i, n int)
+	// Check confirms the drive is still the drive.  It's called before
+	// each pass and at least every CheckEvery bytes, with the offset the
+	// run is about to touch.  An error stops the run and lands in
+	// Result.Alarm.
+	Check func(off int64) error
+	// Block, Buf and CheckEvery default to the package's; tests shrink them.
+	Block, Buf, CheckEvery int64
 }
 
 // Run writes the keystream over the whole device, then verifies it.  A
 // cancelled context stops it between buffers; the result says how far it
 // got.
 func (j *Job) Run(ctx context.Context) (*Result, error) {
-	bs, bf := cmp.Or(j.Block, Block), cmp.Or(j.Buf, buf)
+	bs, every := cmp.Or(j.Block, Block), cmp.Or(j.CheckEvery, CheckEvery)
+	bf := min(cmp.Or(j.Buf, buf), bs)
 	if j.Size <= 0 || j.Size%512 != 0 {
 		return nil, fmt.Errorf("size %d isn't a whole number of 512-byte sectors", j.Size)
 	}
@@ -168,20 +185,22 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 	want := make([]byte, bf)
 
 	n := int((j.Size + bs - 1) / bs)
-	r := &Result{Method: "AES-256-CTR keystream, one pass, read back and compared", Size: j.Size, Block: bs,
+	r := &Result{Method: Method, Size: j.Size, Block: bs,
 		Cells: make([]Cell, n), Started: time.Now().UTC(),
 		Key: hex.EncodeToString(key[:32]), IV: hex.EncodeToString(iv)}
 
 	// Write.
+	next := int64(0) // the offset of the next identity check
 	for i := 0; i < n; i++ {
+		j.start("write", i, n)
 		t0 := time.Now()
 		c := &r.Cells[i]
-		for off := int64(i) * bs; off < min(int64(i+1)*bs, j.Size); off += bf {
-			if err := ctx.Err(); err != nil {
-				r.Aborted = "stopped during the write pass"
+		end := min(int64(i+1)*bs, j.Size)
+		for off := int64(i) * bs; off < end; off += bf {
+			if j.halt(ctx, r, "write", off, &next, every) {
 				return r, nil
 			}
-			m := min(bf, j.Size-off)
+			m := min(bf, end-off)
 			keystream(block, iv, off, data[:m])
 			if _, err := f.WriteAt(data[:m], off); err != nil {
 				c.Err = firstErr(c.Err, err) // the verify pass counts the damage
@@ -200,15 +219,17 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 	r.Wrote = time.Now().UTC()
 
 	// Verify.
+	next = 0
 	for i := 0; i < n; i++ {
+		j.start("verify", i, n)
 		t0 := time.Now()
 		c := &r.Cells[i]
-		for off := int64(i) * bs; off < min(int64(i+1)*bs, j.Size); off += bf {
-			if err := ctx.Err(); err != nil {
-				r.Aborted = "stopped during the verify pass"
+		end := min(int64(i+1)*bs, j.Size)
+		for off := int64(i) * bs; off < end; off += bf {
+			if j.halt(ctx, r, "verify", off, &next, every) {
 				return r, nil
 			}
-			m := min(bf, j.Size-off)
+			m := min(bf, end-off)
 			keystream(block, iv, off, want[:m])
 			if _, err := f.ReadAt(data[:m], off); err != nil {
 				c.Bad += m
@@ -237,6 +258,31 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 	}
 	r.Verified = time.Now().UTC()
 	return r, nil
+}
+
+func (j *Job) start(pass string, i, n int) {
+	if j.OnStart != nil {
+		j.OnStart(pass, i, n)
+	}
+}
+
+// halt says whether the run stops before touching off: the identity check
+// failed, or the context was cancelled.  It runs the check when one is due,
+// and schedules the next.
+func (j *Job) halt(ctx context.Context, r *Result, pass string, off int64, next *int64, every int64) bool {
+	if j.Check != nil && off >= *next {
+		*next = off + every
+		if err := j.Check(off); err != nil {
+			r.Alarm = err.Error()
+			r.Aborted = "stopped during the " + pass + " pass"
+			return true
+		}
+	}
+	if ctx.Err() != nil {
+		r.Aborted = "stopped during the " + pass + " pass"
+		return true
+	}
+	return false
 }
 
 // Keystream fills b with the stream a wipe with this key and IV wrote at
