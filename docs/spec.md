@@ -192,7 +192,7 @@ The wipe screen is DEFRAG.  The drive is a grid of 1 GiB blocks.  It's 932 cells
 
 `bayd` keeps the cell states, and the page gets them as one short string a tick.  Every viewer gets the same string (§4.3).  The final map, with each block's write and read times, goes into the record.  `record.md` and the printout carry it as text, so the map ships with the drive.
 
-The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9VPAX9NA` on 2026-10-24.  It's a root CLI with the same read and refusals as `bayd`, and the serial on the command line as the confirmation.  When Phase 2 lands, its engine (`internal/wipe`) moves into `bayd` and the CLI goes away.
+The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9VPAX9NA` on 2026-10-24.  It's a root CLI with the same read and refusals as `bayd`, and the serial on the command line as the confirmation.  Phase 2 moved its engine into `bayd`, and the CLI is gone.
 
 ## 7. The record
 
@@ -303,7 +303,7 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
 | Phase | Deliverable | Needs |
 |---|---|---|
 | **1 — Read-only bay** | `bayd` read path, `zaweb` drive card, Re-read, inspect records, serial list, record page with print.  Nothing can write. | Val: port, Caddy route, DNS |
-| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS, one `bayd` per bay.  The kernel enforces each bay's scope.  Records move to the hub.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  The engine exists: `zwipe` ran the first real wipe on `9VPAX9NA` by hand.  Still to measure: ATA erase through the bridge. | Val: dock-host certs, hub placement |
+| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS, one `bayd` per bay.  The kernel enforces each bay's scope.  Records move to the hub.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  **Built 2026-10-25** and run end to end on a file: hub, link and `bayd` over mTLS, wipe, record to the hub, signed on arrival, checked by `zverify` and `ssh-keygen -Y verify`.  Still to prove on hardware: the units and the device filter on dock-host, then a real drive.  Still to measure: ATA erase through the bridge. | Val: the CA and certs, the Caddy route to `zaweb:8460`, `/opt/zawiper/tls` |
 | **3 — Wipe + Load** | The hub serves staging; `bayd` pulls with range requests.  Format, load, verify against Kiwix's hashes, ballast, reserve, on-drive records. | Staging mount on the hub |
 | **4 — Polish** | ntfy, metrics, a backup-drive profile, a destruction note on a record. | |
 
@@ -329,6 +329,12 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.
   - The HBA gives full SCSI health data, `sg_format` for 520-byte drives, and SANITIZE.  That's the Purge route.
   - Either way, `bayd` needs a SCSI SMART reader and grader: grown defect list, error counter log.
+- **Phase 2 on hardware** (needs Val first):
+  - Does `systemctl set-property --runtime` drop a removed partition from the device filter, and how long is a new partition blocked after insert?
+  - Does the link's key reach it through `LoadCredential=`?  The fallback is `root:zawiper 0640`.
+  - Does the read (smartctl, blkid, mounts in the private namespace) still work under the hardened `bayd@`?
+  - Does `Sys.Eject` spin the drive down through the ASMedia bridge?
+- **What a buyer can reach:** the hub is LAN-only, so the record URL, the QR and `/za-wiper.pub` on a certificate lead nowhere for a buyer.  Undecided: publish the key and the records somewhere public, or print the key on the sheet and ship `record.json` with the drive.  The same goes for where a buyer gets `zverify`.  `record.md` already carries a check that needs only `openssl` and `cmp`.
 - **Zim:** the seed pipeline stages whatever the catalog has newest, so a hold in a manifest is only a comment to it.  Holds need to be real (a pinned `file:` in the manifest) before the next push that should run seed.
 
 ---
