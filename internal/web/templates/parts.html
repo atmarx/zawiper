@@ -1,9 +1,34 @@
 {{define "serial"}}<span class="serial"><span class="serial-head">{{tail .}}</span><span class="serial-tail">{{last6 .}}</span></span>{{end}}
 
+{{define "state"}}<span class="state state-{{lower .}}"><span class="shape" aria-hidden="true"></span>{{.}}</span>{{end}}
+
+{{define "recent"}}
+<section class="recent">
+  <h2>Recently through the bays</h2>
+  <form class="search" method="get" action="/drives" role="search">
+    <label for="q" class="sr">Search drives by serial or model</label>
+    <input id="q" name="q" type="search" placeholder="Serial or model" autocomplete="off">
+    <button class="btn" type="submit">Search</button>
+  </form>
+  {{with .}}
+  <ul class="recent-list">
+  {{range .}}
+    <li><a href="/drives/{{dir .Serial}}">{{template "serial" .Serial}}</a> <span class="muted">{{.Model}} · {{size .Capacity}}</span> {{template "badge" .LastGrade}}</li>
+  {{end}}
+  </ul>
+  {{end}}
+  <p><a href="/drives">All drives →</a></p>
+</section>
+{{end}}
+
 {{define "badge"}}<span class="badge badge-{{grade .}}">{{if eq (grade .) "pass"}}✓{{else if eq (grade .) "notes"}}△{{else if eq (grade .) "fail"}}✕{{end}} {{if .}}{{.}}{{else}}NO GRADE{{end}}</span>{{end}}
 
 {{define "found"}}
 <p class="found-line">{{found .}}</p>
+{{template "partlist" .}}
+{{end}}
+
+{{define "partlist"}}
 {{with .Table.Parts}}
 <ul class="parts">
   {{range .}}

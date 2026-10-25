@@ -1,24 +1,121 @@
-// Za Wiper: keep the bay card live, re-read on request, filter the list.
+// Za Wiper: one shared view.  The wall and the bay pages listen to the same
+// frames from /events, and poll /api/frame every 2 s while the stream is
+// down.  A frame updates a running job's map and numbers in place, and asks
+// for fresh HTML only when a bay's signature changes.
 (() => {
-  const bay = document.querySelector("[data-poll]");
-  let last = bay ? bay.innerHTML : "";
+  // The DEFRAG glyph for each cell byte.  web/surface.go holds the same
+  // table; keep the two in step.
+  const GLYPHS = {
+    ".": ["░", "todo"], W: ["W", "cur"], R: ["R", "cur"],
+    w: ["▓", "written"], v: ["█", "verified"], s: ["▒", "slow"], B: ["B", "bad"],
+  };
 
-  async function refresh() {
-    if (!bay) return;
-    try {
-      const r = await fetch(bay.dataset.poll, { cache: "no-store" });
-      const html = await r.text();
-      if (html !== last) {
-        bay.innerHTML = html;
-        last = html;
+  function cells(el, map) {
+    if (el.dataset.drawn === map) return;
+    const frag = document.createDocumentFragment();
+    let span = null, cls = "";
+    for (const ch of map) {
+      const [glyph, c] = GLYPHS[ch] || ["?", "unk"];
+      if (c !== cls) {
+        span = document.createElement("span");
+        span.className = "c-" + c;
+        frag.appendChild(span);
+        cls = c;
       }
+      span.textContent += glyph;
+    }
+    el.replaceChildren(frag);
+    el.dataset.drawn = map;
+  }
+
+  const regions = [...document.querySelectorAll("[data-fragment]")];
+  const say = document.getElementById("say");
+  const notice = document.getElementById("notice");
+
+  async function reload(region) {
+    if (region.loading) { region.again = true; return; }
+    region.loading = true;
+    try {
+      const r = await fetch(region.dataset.fragment, { cache: "no-store" });
+      if (!r.ok) return;
+      const html = await r.text();
+      const open = region.querySelector("dialog[open]");
+      const was = region.querySelector("[data-state]");
+      if (open) open.close();
+      region.innerHTML = html;
+      if (open && notice) {
+        notice.textContent = "The drive's facts changed while the confirm was open, so it closed.  Look again before you erase anything.";
+        notice.hidden = false;
+      }
+      const now = region.querySelector("[data-state]");
+      if (say && now && (!was || was.dataset.state !== now.dataset.state)) {
+        say.textContent = now.dataset.key + " is now " + now.dataset.state + ".";
+      }
+    } catch (_) {
+      // The next frame will try again.
+    } finally {
+      region.loading = false;
+      if (region.again) { region.again = false; reload(region); }
+    }
+  }
+
+  function apply(frame) {
+    const byKey = new Map(frame.bays.map((b) => [b.key, b]));
+    for (const region of regions) {
+      const shown = region.querySelectorAll("[data-key]");
+      let stale = "everyBay" in region.dataset && shown.length !== frame.bays.length;
+      shown.forEach((el) => {
+        const b = byKey.get(el.dataset.key);
+        if (!b || b.sig !== el.dataset.sig) { stale = true; return; }
+        if (!b.live) return;
+        el.querySelectorAll("[data-field]").forEach((f) => {
+          const v = b.live[f.dataset.field];
+          if (typeof v !== "string") return;
+          if ("cells" in f.dataset) cells(f, v);
+          else if (f.textContent !== v) f.textContent = v;
+        });
+      });
+      if (stale) reload(region);
+    }
+  }
+
+  let poll = null;
+  async function pollOnce() {
+    if (document.visibilityState !== "visible") return;
+    try {
+      const r = await fetch("/api/frame", { cache: "no-store" });
+      if (r.ok) apply(await r.json());
     } catch (_) {
       // The next tick will try again.
     }
   }
-  if (bay) {
-    setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 2000);
-    document.addEventListener("visibilitychange", refresh);
+  function startPoll() { if (!poll) poll = setInterval(pollOnce, 2000); }
+  function stopPoll() { clearInterval(poll); poll = null; }
+
+  if (regions.length) {
+    if ("EventSource" in window) {
+      const es = new EventSource("/events");
+      es.addEventListener("frame", (e) => { stopPoll(); apply(JSON.parse(e.data)); });
+      // EventSource reconnects by itself; poll until it does.
+      es.addEventListener("error", startPoll);
+    } else {
+      startPoll();
+    }
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Za-Wiper": "1" },
+      body: JSON.stringify(body || {}),
+    });
+    if (!r.ok) throw new Error((await r.text()).trim() || r.statusText);
+  }
+
+  function show(el, msg) {
+    if (!el) return;
+    el.textContent = msg;
+    el.hidden = !msg;
   }
 
   document.addEventListener("click", async (e) => {
@@ -26,18 +123,47 @@
       window.print();
       return;
     }
-    const btn = e.target.closest("[data-reread]");
+    const region = e.target.closest("[data-fragment]");
+
+    const opener = e.target.closest("[data-open-confirm]");
+    if (opener && region) {
+      const dlg = region.querySelector("dialog.confirm");
+      if (dlg && !opener.disabled) {
+        if (notice) notice.hidden = true;
+        show(dlg.querySelector("[data-confirm-error]"), "");
+        dlg.showModal();
+      }
+      return;
+    }
+
+    // The confirm posts what it was drawn from: this serial, this insertion.
+    const go = e.target.closest("[data-confirm]");
+    if (go) {
+      const dlg = go.closest("dialog");
+      go.disabled = true;
+      try {
+        await post(dlg.dataset.url, { serial: dlg.dataset.serial, session: dlg.dataset.session });
+        dlg.close();
+        if (region) reload(region);
+      } catch (err) {
+        show(dlg.querySelector("[data-confirm-error]"), err.message);
+        go.disabled = false;
+      }
+      return;
+    }
+
+    const btn = e.target.closest("[data-act]");
     if (!btn) return;
+    const label = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Re-reading…";
+    if (btn.dataset.busy) btn.textContent = btn.dataset.busy;
     try {
-      await fetch("/api/bay/reread", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Za-Wiper": "1" },
-        body: "{}",
-      });
-    } finally {
-      setTimeout(refresh, 300);
+      await post(btn.dataset.act);
+      if (region) setTimeout(() => reload(region), 300);
+    } catch (err) {
+      show(region && region.querySelector("[data-error]"), err.message);
+      btn.disabled = false;
+      btn.textContent = label;
     }
   });
 

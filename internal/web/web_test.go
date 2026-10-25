@@ -1,14 +1,19 @@
 package web
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"zawiper/internal/hub"
 	"zawiper/internal/model"
 	"zawiper/internal/proto"
 	"zawiper/internal/records"
@@ -18,27 +23,91 @@ import (
 
 const host = "zawiper.example.org"
 
-type fakeBayd struct {
-	snap    model.Snapshot
-	rereads int
+// fakeFleet is a hub with no bays behind it: it records every call and
+// ticks when told to.
+type fakeFleet struct {
+	mu    sync.Mutex
+	bays  map[string]hub.Bay
+	calls []call
+	subs  []chan struct{}
 }
 
-func (f *fakeBayd) Call(_ context.Context, v proto.Verb) (*model.Snapshot, error) {
-	if v == proto.Reread {
-		f.rereads++
+type call struct {
+	Key string
+	Req proto.Request
+}
+
+func (f *fakeFleet) Bays() []hub.Bay {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []hub.Bay
+	for _, b := range f.bays {
+		out = append(out, b)
 	}
-	s := f.snap
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out
+}
+
+func (f *fakeFleet) Bay(key string) (hub.Bay, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	b, ok := f.bays[key]
+	return b, ok
+}
+
+func (f *fakeFleet) Call(_ context.Context, key string, req proto.Request) (*model.Snapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call{key, req})
+	b, ok := f.bays[key]
+	if !ok {
+		return nil, errors.New("no such bay")
+	}
+	s := b.Snap
 	return &s, nil
 }
 
-func setup(t *testing.T) (*fakeBayd, http.Handler) {
+func (f *fakeFleet) Subscribe() (<-chan struct{}, func()) {
+	ch := make(chan struct{}, 1)
+	f.mu.Lock()
+	f.subs = append(f.subs, ch)
+	f.mu.Unlock()
+	return ch, func() {}
+}
+
+func (f *fakeFleet) set(key string, mod func(*hub.Bay)) {
+	f.mu.Lock()
+	b := f.bays[key]
+	mod(&b)
+	f.bays[key] = b
+	subs := f.subs
+	f.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (f *fakeFleet) took() []call {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]call(nil), f.calls...)
+}
+
+var (
+	t0      = time.Date(2026, 10, 23, 14, 2, 11, 0, time.UTC)
+	session = time.Date(2026, 10, 25, 9, 30, 0, 123456789, time.UTC)
+)
+
+func setup(t *testing.T) (*fakeFleet, http.Handler, *model.Drive) {
 	t.Helper()
 	js, err := os.ReadFile("../smart/testdata/st31000528as.json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	info, _ := smart.Parse(js)
-	t0 := time.Date(2026, 10, 23, 14, 2, 11, 0, time.UTC)
 	drv := &model.Drive{
 		Dev: "/dev/sdc", Size: info.CapacityBytes, LogicalSector: 512, PhysicalSector: 512, ReadOnly: true,
 		Bridge: model.Bridge{VendorID: "174c", ProductID: "1156", Manufacturer: "ASMedia"},
@@ -49,7 +118,7 @@ func setup(t *testing.T) (*fakeBayd, http.Handler) {
 		}},
 	}
 	store := &records.Store{Root: t.TempDir()}
-	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(4 * time.Second), Host: "dock-host", Bay: "the bay", Software: "test", Drive: *drv, Health: drv.Health}
+	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(4 * time.Second), Host: "dock-host", Bay: "bay1", Software: "test", Drive: *drv, Health: drv.Health}
 	if err := store.SaveInspect(rec, js, []byte("smartctl text")); err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +131,16 @@ func setup(t *testing.T) (*fakeBayd, http.Handler) {
 	if err := store.SaveWipe(&w, map[string][]byte{"smart-before.txt": []byte("before")}); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeBayd{snap: model.Snapshot{State: model.Present, Bay: "the bay", Drive: drv, RecordID: rec.ID}}
-	s := &Server{Bayd: f, Store: store, Hosts: []string{host}, Version: "test"}
-	return f, s.Handler()
+	f := &fakeFleet{bays: map[string]hub.Bay{
+		"dock-host/bay1": {Key: "dock-host/bay1", Host: "dock-host", Name: "bay1", Caps: []string{"wipe"}, Online: true,
+			Snap: model.Snapshot{State: model.Present, Bay: "bay1", Session: session, Drive: drv, RecordID: rec.ID}},
+		"dock-host/bay2": {Key: "dock-host/bay2", Host: "dock-host", Name: "bay2", Caps: []string{"wipe"}, Online: true,
+			Snap: model.Snapshot{State: model.Empty, Bay: "bay2"}},
+		"dev-host/sas0": {Key: "dev-host/sas0", Host: "dev-host", Name: "sas0", Online: false, Seen: t0,
+			Snap: model.Snapshot{State: model.Offline}},
+	}}
+	s := &Server{Fleet: f, Store: store, Hosts: []string{host}, Version: "test"}
+	return f, s.Handler(), drv
 }
 
 func get(h http.Handler, path string) *httptest.ResponseRecorder {
@@ -75,11 +151,32 @@ func get(h http.Handler, path string) *httptest.ResponseRecorder {
 	return w
 }
 
+func post(h http.Handler, path, body string, mod func(*http.Request)) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", path, strings.NewReader(body))
+	r.Host = host
+	r.Header.Set("Origin", "https://"+host)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Za-Wiper", "1")
+	if mod != nil {
+		mod(r)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+func wants(t *testing.T, what, body string, want ...string) {
+	t.Helper()
+	for _, s := range want {
+		if !strings.Contains(body, s) {
+			t.Errorf("%s lacks %q", what, s)
+		}
+	}
+}
+
 func TestPages(t *testing.T) {
-	_, h := setup(t)
-	for path, wants := range map[string][]string{
-		"/":                {"ST31000528AS", "9VPA", "X9NA", "PASS WITH NOTES", "312.00 GB used", "Looks like a backup", "Re-read", "Recently in the bay"},
-		"/fragment/bay":    {"PRESENT", "This read's record"},
+	_, h, _ := setup(t)
+	for path, want := range map[string][]string{
 		"/drives":          {"9VPAX9NA", "1 drive on record"},
 		"/drives?q=x9n":    {"9VPAX9NA"},
 		"/drives/9VPAX9NA": {"2026-10-23T14-02-11Z-inspect", "inspect"},
@@ -87,18 +184,18 @@ func TestPages(t *testing.T) {
 		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/record.md":     {"# 9VPAX9NA"},
 		"/drives/9VPAX9NA/2026-10-23T15-02-11Z-wipe":                  {"Wiped, verified", "Wipe: verified", "2,147,483,648 of 2,147,483,648", "██", "Found before the wipe", "smart-before.txt", "Every byte"},
 		"/drives/9VPAX9NA/2026-10-23T15-02-11Z-wipe/smart-before.txt": {"before"},
-		"/static/zawiper.css":                                         {"--hazard"},
+		"/static/zawiper.css":                                         {"--hazard", "Px437 IBM VGA 8x16"},
+		"/static/fonts/LICENSE.txt":                                   {"Attribution-ShareAlike 4.0"},
 	} {
 		w := get(h, path)
 		if w.Code != 200 {
 			t.Errorf("%s: %d %s", path, w.Code, w.Body.String())
 			continue
 		}
-		for _, want := range wants {
-			if !strings.Contains(w.Body.String(), want) {
-				t.Errorf("%s lacks %q", path, want)
-			}
-		}
+		wants(t, path, w.Body.String(), want...)
+	}
+	if w := get(h, "/static/fonts/Web437_IBM_VGA_8x16.woff"); w.Code != 200 || !strings.HasPrefix(w.Body.String(), "wOFF") {
+		t.Errorf("the font: %d", w.Code)
 	}
 	if w := get(h, "/drives?q=nosuchdrive"); !strings.Contains(w.Body.String(), "hasn't been through the bay") {
 		t.Error("empty search")
@@ -107,6 +204,7 @@ func TestPages(t *testing.T) {
 		"/drives/NOPE", "/drives/9VPAX9NA/nope",
 		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/drive.json",
 		"/drives/9VPAX9NA/..%2f..%2fetc/record.md",
+		"/bays/dock-host/nope", "/bays/dock-host%2fbay1/x", "/fragment/bays/nope/nope",
 	} {
 		if w := get(h, path); w.Code != 404 {
 			t.Errorf("%s: %d", path, w.Code)
@@ -114,8 +212,139 @@ func TestPages(t *testing.T) {
 	}
 }
 
+func TestWall(t *testing.T) {
+	f, h, drv := setup(t)
+	f.set("dock-host/bay2", func(b *hub.Bay) {
+		b.Snap = model.Snapshot{State: model.Running, Drive: drv, Session: session, Job: &model.Job{
+			Kind: "wipe", Phase: "verify", Serial: drv.Serial(), Map: "vvvvRwww", Done: 1500, Total: 1000, Started: t0,
+		}}
+	})
+	for _, path := range []string{"/", "/fragment/wall"} {
+		w := get(h, path)
+		if w.Code != 200 {
+			t.Fatalf("%s: %d", path, w.Code)
+		}
+		body := w.Body.String()
+		wants(t, path, body,
+			"dock-host", "dev-host", // grouped by host
+			`href="/bays/dock-host/bay1"`, `data-key="dock-host/bay1"`, `data-sig="`,
+			"ST31000528AS", `<span class="serial-tail">PAX9NA</span>`, // the last six, big
+			"⚠ Looks like a backup", "tile-warn",
+			"tile-running", "75.0%", "Reading it back", `data-field="mini"`, `<span class="c-verified">████</span><span class="c-cur">R</span>`,
+			"tile-offline", "OFFLINE", "Link down",
+		)
+		if strings.Index(body, "dock-host") > strings.Index(body, "dev-host") {
+			t.Errorf("%s: hosts out of order", path)
+		}
+	}
+	wants(t, "/", get(h, "/").Body.String(), `data-fragment="/fragment/wall"`, "Recently through the bays", "9VPAX9NA")
+}
+
+func TestBayStates(t *testing.T) {
+	f, h, drv := setup(t)
+	const page = "/bays/dock-host/bay1"
+	const frag = "/fragment/bays/dock-host/bay1"
+	set := func(s model.Snapshot) { f.set("dock-host/bay1", func(b *hub.Bay) { b.Snap = s }) }
+	job := func(phase, m, evidence string) *model.Job {
+		return &model.Job{Kind: "wipe", Phase: phase, Serial: drv.Serial(), Session: session, Started: t0,
+			Ended: t0.Add(2 * time.Hour), Map: m, Done: 2 << 30, Total: 1 << 30, MBps: 150, ETA: 3725, TempC: 41,
+			Evidence: evidence, RecordID: "2026-10-23T16-02-11Z-wipe"}
+	}
+
+	// PRESENT: the drive card, and the confirm drawn from it.
+	body := get(h, page).Body.String()
+	wants(t, "present", body, "ST31000528AS", "9VPA", "X9NA", "PASS WITH NOTES", "312.00 GB used", "Looks like a backup",
+		`data-act="/api/bays/dock-host/bay1/reread"`, "Re-read", `data-fragment="/fragment/bays/dock-host/bay1"`,
+		`disabled title="Phase 3">Wipe + Load`,
+		`<dialog class="confirm confirm-warn"`, `data-url="/api/bays/dock-host/bay1/wipe"`,
+		`data-serial="9VPAX9NA"`, `data-session="2026-10-25T09:30:00.123456789Z"`,
+		"Erase ST31000528AS, serial 9VPAX9NA, 1.00 TB?", "Found on it: GPT · 2 partitions", "Erase this backup drive",
+		"This read's record")
+	if strings.Contains(body, "data-open-confirm disabled") {
+		t.Error("Wipe is disabled on a clean PRESENT drive")
+	}
+
+	// Not a backup: the plain button.
+	plain := *drv
+	plain.Table = model.Table{}
+	set(model.Snapshot{State: model.Present, Session: session, Drive: &plain})
+	body = get(h, frag).Body.String()
+	wants(t, "plain", body, ">Erase this drive<", "No partition table, no filesystems.  Looks blank already.")
+	if strings.Contains(body, "confirm-warn") || strings.Contains(body, "Erase this backup drive") {
+		t.Error("a blank drive got the backup treatment")
+	}
+
+	// Refusals: no Wipe, and no confirm to open.
+	set(model.Snapshot{State: model.Present, Session: session, Drive: drv, Refusals: []string{"There are 2 drives"}, Devices: []string{"/dev/sdc", "/dev/sdd"}})
+	body = get(h, frag).Body.String()
+	wants(t, "refused", body, "won't act", "/dev/sdd", `data-open-confirm disabled`)
+	if strings.Contains(body, "<dialog") {
+		t.Error("a refused drive has a confirm")
+	}
+
+	// RUNNING: the warning and DEFRAG, and no buttons at all.
+	set(model.Snapshot{State: model.Running, Session: session, Drive: drv, Job: &model.Job{
+		Kind: "wipe", Phase: "write", Serial: drv.Serial(), Started: t0, Map: "wwW.....", Done: 3 << 30, Total: 8 << 30,
+		MBps: 151.4, ETA: 3725, TempC: 41}})
+	body = get(h, page).Body.String()
+	wants(t, "running", body, "Do not pull the drive.", `class="dos"`, "Writing the keystream", "Block 3 of 8",
+		"151 MB/s", "1:02:05", "41 °C", "18.7%", `data-field="map"`,
+		`<span class="c-written">▓▓</span><span class="c-cur">W</span><span class="c-todo">░░░░░</span>`)
+	if strings.Contains(body, "<button") {
+		t.Error("RUNNING has a button")
+	}
+
+	// DONE: the grade, the numbers, the record, Ack and Eject.
+	set(model.Snapshot{State: model.Done, Session: session, Drive: drv, Job: job("record", "vvsvvvvv", "")})
+	body = get(h, page).Body.String()
+	wants(t, "done", body, "Wiped and verified.", "PASS WITH NOTES", "2:00:00", "1.07 GB", "Slow blocks",
+		`href="/drives/9VPAX9NA/2026-10-23T16-02-11Z-wipe"`, "The record",
+		`data-act="/api/bays/dock-host/bay1/ack"`, `data-act="/api/bays/dock-host/bay1/eject"`, "Done.  Every block")
+
+	// FAILED: the evidence before anything else.
+	set(model.Snapshot{State: model.Failed, Session: session, Drive: drv, Job: job("verify", "vvvBwwww", "read mismatch at offset 3,221,225,472: 512 bytes differ")})
+	body = get(h, page).Body.String()
+	wants(t, "failed", body, "The wipe failed.", "read mismatch at offset 3,221,225,472", "Reading it back and comparing",
+		"<strong>not</strong> wiped", "/ack", "/eject", `class="c-bad">B<`)
+	if strings.Index(body, "read mismatch") > strings.Index(body, `class="dos"`) || strings.Index(body, "read mismatch") > strings.Index(body, "ST31000528AS") {
+		t.Error("FAILED doesn't lead with the evidence")
+	}
+
+	// INTERRUPTED: the spec's words, exactly.
+	set(model.Snapshot{State: model.Interrupted, Session: session, Drive: drv, Job: job("write", "ww......", "")})
+	body = get(h, page).Body.String()
+	wants(t, "interrupted", body, "The power went out mid-wipe.  I don't know what state this drive is in, and I won't pretend I do.", "/ack")
+
+	// ALARM: a full-width stop that needs acknowledging.
+	set(model.Snapshot{State: model.Alarm, Session: session, Drive: drv, Job: job("write", "www.....", "serial changed: 9VPAX9NA became ZZZ")})
+	body = get(h, page).Body.String()
+	wants(t, "alarm", body, `class="stop"`, "STOP", "bayd ended the job itself", "serial changed", `data-act="/api/bays/dock-host/bay1/ack"`)
+	if strings.Contains(body, "/eject") {
+		t.Error("ALARM offers Eject before it's acknowledged")
+	}
+
+	// EMPTY and READING, as in Phase 1.
+	set(model.Snapshot{State: model.Empty})
+	wants(t, "empty", get(h, page).Body.String(), "The viper is hungry", "Recently through the bays")
+	set(model.Snapshot{State: model.Reading, Message: "smartctl -x /dev/zawiper/bay1"})
+	wants(t, "reading", get(h, frag).Body.String(), "smartctl -x /dev/zawiper/bay1")
+
+	// OFFLINE, whatever the last snapshot said.
+	body = get(h, "/bays/dev-host/sas0").Body.String()
+	wants(t, "offline", body, "OFFLINE", "link is down")
+	if strings.Contains(body, "<button") {
+		t.Error("an offline bay has buttons")
+	}
+}
+
+func TestWipeableNeedsTheCap(t *testing.T) {
+	f, h, _ := setup(t)
+	f.set("dock-host/bay1", func(b *hub.Bay) { b.Caps = nil })
+	wants(t, "no cap", get(h, "/fragment/bays/dock-host/bay1").Body.String(), "data-open-confirm disabled", "isn&#39;t set up to wipe")
+}
+
 func TestWrongHost(t *testing.T) {
-	_, h := setup(t)
+	_, h, _ := setup(t)
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Host = "evil.example"
 	w := httptest.NewRecorder()
@@ -125,61 +354,256 @@ func TestWrongHost(t *testing.T) {
 	}
 }
 
-func TestRereadGuard(t *testing.T) {
-	f, h := setup(t)
-	post := func(mod func(*http.Request)) int {
-		r := httptest.NewRequest("POST", "/api/bay/reread", strings.NewReader("{}"))
-		r.Host = host
-		r.Header.Set("Origin", "https://"+host)
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("X-Za-Wiper", "1")
-		mod(r)
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, r)
-		return w.Code
-	}
+const wipeBodyOK = `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00.123456789Z"}`
+
+func TestGuard(t *testing.T) {
+	f, h, _ := setup(t)
 	refused := map[string]func(*http.Request){
 		"no origin":    func(r *http.Request) { r.Header.Del("Origin") },
 		"other origin": func(r *http.Request) { r.Header.Set("Origin", "https://evil.example") },
 		"form post":    func(r *http.Request) { r.Header.Set("Content-Type", "application/x-www-form-urlencoded") },
+		"text post":    func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") },
 		"no header":    func(r *http.Request) { r.Header.Del("X-Za-Wiper") },
 		"null origin":  func(r *http.Request) { r.Header.Set("Origin", "null") },
 	}
-	for name, mod := range refused {
-		if code := post(mod); code < 400 {
-			t.Errorf("%s: %d", name, code)
+	for _, verb := range []string{"reread", "wipe", "ack", "eject"} {
+		path := "/api/bays/dock-host/bay1/" + verb
+		for name, mod := range refused {
+			if w := post(h, path, wipeBodyOK, mod); w.Code < 400 {
+				t.Errorf("%s %s: %d", verb, name, w.Code)
+			}
+		}
+		if n := len(f.took()); n != 0 {
+			t.Fatalf("%s: a refused request reached the fleet (%d calls)", verb, n)
+		}
+		if w := get(h, path); w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("GET %s: %d", verb, w.Code)
 		}
 	}
-	if f.rereads != 0 {
-		t.Fatalf("a refused request reached bayd")
+	for _, verb := range []proto.Verb{proto.Reread, proto.Wipe, proto.Ack, proto.Eject} {
+		if w := post(h, "/api/bays/dock-host/bay1/"+string(verb), wipeBodyOK, nil); w.Code != 200 {
+			t.Errorf("good %s: %d %s", verb, w.Code, w.Body.String())
+		}
 	}
-	if code := post(func(*http.Request) {}); code != 200 || f.rereads != 1 {
-		t.Errorf("good request: %d, rereads %d", code, f.rereads)
+	got := f.took()
+	if len(got) != 4 {
+		t.Fatalf("calls: %+v", got)
 	}
-	if code := post(func(*http.Request) {}); code != http.StatusTooManyRequests {
-		t.Errorf("second re-read inside 2s: %d", code)
-	}
-	r := httptest.NewRequest("GET", "/api/bay/reread", nil)
-	r.Host = host
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("GET re-read: %d", w.Code)
+	for i, verb := range []proto.Verb{proto.Reread, proto.Wipe, proto.Ack, proto.Eject} {
+		if got[i].Key != "dock-host/bay1" || got[i].Req.Verb != verb {
+			t.Errorf("call %d: %+v", i, got[i])
+		}
+		if verb != proto.Wipe && (got[i].Req.Serial != "" || !got[i].Req.Session.IsZero()) {
+			t.Errorf("%s carried more than its verb: %+v", verb, got[i].Req)
+		}
 	}
 }
 
-func TestEmptyAndReadingStates(t *testing.T) {
-	f, h := setup(t)
-	f.snap = model.Snapshot{State: model.Empty, Bay: "the bay"}
-	if !strings.Contains(get(h, "/fragment/bay").Body.String(), "The viper is hungry") {
-		t.Error("empty")
+func TestWipePassesSerialAndSession(t *testing.T) {
+	f, h, _ := setup(t)
+	const path = "/api/bays/dock-host/bay1/wipe"
+	for name, body := range map[string]string{
+		"empty":          `{}`,
+		"no session":     `{"serial":"9VPAX9NA"}`,
+		"no serial":      `{"session":"2026-10-25T09:30:00Z"}`,
+		"names a device": `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","dev":"/dev/sda"}`,
+		"names a bay":    `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","key":"dev-host/sas0"}`,
+		"not JSON":       `serial=9VPAX9NA`,
+	} {
+		if w := post(h, path, body, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", name, w.Code)
+		}
 	}
-	f.snap = model.Snapshot{State: model.Reading, Message: "Reading identity"}
-	if !strings.Contains(get(h, "/fragment/bay").Body.String(), "Reading identity") {
-		t.Error("reading")
+	if n := len(f.took()); n != 0 {
+		t.Fatalf("a bad wipe reached the fleet: %+v", f.took())
 	}
-	f.snap = model.Snapshot{State: model.Present, Refusals: []string{"There are 2 drives"}, Devices: []string{"/dev/sdc", "/dev/sdd"}}
-	if body := get(h, "/fragment/bay").Body.String(); !strings.Contains(body, "won't act") || !strings.Contains(body, "/dev/sdd") {
-		t.Error("refusal without a drive")
+	if w := post(h, path, wipeBodyOK, nil); w.Code != 200 {
+		t.Fatalf("good wipe: %d %s", w.Code, w.Body.String())
+	}
+	got := f.took()
+	if len(got) != 1 {
+		t.Fatalf("calls: %+v", got)
+	}
+	want := proto.Request{Verb: proto.Wipe, Serial: "9VPAX9NA", Session: session}
+	if got[0].Key != "dock-host/bay1" || got[0].Req.Verb != want.Verb || got[0].Req.Serial != want.Serial || !got[0].Req.Session.Equal(want.Session) {
+		t.Errorf("wipe went down as %+v, want %+v", got[0], want)
+	}
+
+	// The page's own confirm, as drawn, posts something this accepts.
+	body := get(h, "/bays/dock-host/bay1").Body.String()
+	if !strings.Contains(body, `data-session="`+session.Format(time.RFC3339Nano)+`"`) {
+		t.Error("the confirm's session doesn't round-trip")
+	}
+
+	// An offline bay or an unknown one never gets a call.
+	if w := post(h, "/api/bays/dev-host/sas0/wipe", wipeBodyOK, nil); w.Code != http.StatusConflict {
+		t.Errorf("offline: %d", w.Code)
+	}
+	if w := post(h, "/api/bays/dev-host/nope/wipe", wipeBodyOK, nil); w.Code != 404 {
+		t.Errorf("unknown bay: %d", w.Code)
+	}
+	if n := len(f.took()); n != 1 {
+		t.Errorf("calls: %+v", f.took())
+	}
+}
+
+func TestNoAbort(t *testing.T) {
+	f, h, _ := setup(t)
+	for _, verb := range []string{"abort", "stop", "cancel", "status", "load"} {
+		if w := post(h, "/api/bays/dock-host/bay1/"+verb, "{}", nil); w.Code != 404 && w.Code != 405 {
+			t.Errorf("%s: %d", verb, w.Code)
+		}
+	}
+	if n := len(f.took()); n != 0 {
+		t.Errorf("calls: %+v", f.took())
+	}
+	if strings.Contains(strings.ToLower(get(h, "/static/zawiper.js").Body.String()), "abort") {
+		t.Error("the script mentions abort")
+	}
+}
+
+func TestRereadRateLimitPerBay(t *testing.T) {
+	f, h, _ := setup(t)
+	f.set("dock-host/bay2", func(b *hub.Bay) { b.Snap.State = model.Present })
+	if w := post(h, "/api/bays/dock-host/bay1/reread", "{}", nil); w.Code != 200 {
+		t.Fatalf("first: %d", w.Code)
+	}
+	if w := post(h, "/api/bays/dock-host/bay1/reread", "{}", nil); w.Code != http.StatusTooManyRequests {
+		t.Errorf("second inside 2s: %d", w.Code)
+	}
+	if w := post(h, "/api/bays/dock-host/bay2/reread", "{}", nil); w.Code != 200 {
+		t.Errorf("another bay: %d", w.Code)
+	}
+	if n := len(f.took()); n != 2 {
+		t.Errorf("calls: %+v", f.took())
+	}
+}
+
+func TestEventsSameFrameForEveryone(t *testing.T) {
+	f, h, drv := setup(t)
+	f.set("dock-host/bay1", func(b *hub.Bay) {
+		b.Snap = model.Snapshot{State: model.Running, Session: session, Drive: drv, Job: &model.Job{
+			Kind: "wipe", Phase: "write", Started: t0, Map: "W.......", Total: 8 << 30}}
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	open := func() (*bufio.Reader, func()) {
+		ctx, cancel := context.WithCancel(context.Background())
+		req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/events", nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+			t.Fatalf("content type %q", ct)
+		}
+		return bufio.NewReader(resp.Body), func() { cancel(); resp.Body.Close() }
+	}
+	next := func(r *bufio.Reader) string {
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(line, "data: ") {
+				return line
+			}
+		}
+	}
+	a, closeA := open()
+	defer closeA()
+	b, closeB := open()
+	defer closeB()
+
+	fa, fb := next(a), next(b)
+	if fa != fb {
+		t.Fatalf("first frames differ:\n%s\n%s", fa, fb)
+	}
+	wants(t, "first frame", fa, `"key":"dock-host/bay1"`, `"state":"RUNNING"`, `"map":"W......."`, `"key":"dev-host/sas0","state":"OFFLINE"`)
+
+	// The bay moves on.  Both viewers get the same next frame, byte for byte,
+	// and the signature holds, so the page updates in place.
+	f.set("dock-host/bay1", func(b *hub.Bay) {
+		j := *b.Snap.Job
+		j.Map, j.Done = "wW......", 1<<30
+		b.Snap.Job = &j
+	})
+	fa2, fb2 := next(a), next(b)
+	if fa2 != fb2 {
+		t.Fatalf("second frames differ:\n%s\n%s", fa2, fb2)
+	}
+	wants(t, "second frame", fa2, `"map":"wW......"`, `"pct":"6.2%"`)
+	sig := func(s string) string { i := strings.Index(s, `"sig":"`); return s[i : i+24] }
+	if sig(fa) != sig(fa2) {
+		t.Error("progress changed the signature")
+	}
+
+	// The poll fallback serves the same shape.
+	wants(t, "/api/frame", get(h, "/api/frame").Body.String(), `"map":"wW......"`)
+}
+
+func TestMini(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"vvvv", "vvvv"},
+		{"vvvvvvvvwwwwwwww", "vw"},
+		{"vvvsvvvvBvvvvvvv", "sB"},
+		{"vvvvvvvwRwwwww..", "wR"},
+		{"vvvvvvvv........", "v."},
+	} {
+		in := c.in
+		if got := Mini(in, len(c.want)); len(c.in) > len(c.want) && got != c.want {
+			t.Errorf("Mini(%q) = %q, want %q", in, got, c.want)
+		}
+	}
+	if got := string(Cells("v.<script>")); strings.Contains(got, "<script") || strings.Contains(got, "script") {
+		t.Errorf("a map byte reached the HTML as itself: %s", got)
+	}
+}
+
+func TestDemoFleet(t *testing.T) {
+	f := NewDemoFleet()
+	defer f.Close()
+	bays := f.Bays()
+	states := map[model.State]int{}
+	hosts := map[string]bool{}
+	for _, b := range bays {
+		states[stateOf(b)]++
+		hosts[b.Host] = true
+	}
+	if len(bays) != 4 || len(hosts) != 2 || states[model.Running] != 1 || states[model.Present] != 1 || states[model.Done] != 1 || states[model.Offline] != 1 {
+		t.Fatalf("demo fleet: %d bays, hosts %v, states %v", len(bays), hosts, states)
+	}
+	ticks, cancel := f.Subscribe()
+	defer cancel()
+	before, _ := f.Bay("dock-host/bay1")
+	select {
+	case <-ticks:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no tick")
+	}
+	after, _ := f.Bay("dock-host/bay1")
+	if before.Snap.Job.Map == after.Snap.Job.Map {
+		t.Error("the running map didn't move")
+	}
+
+	b, _ := f.Bay("dock-host/bay2")
+	if _, err := f.Call(context.Background(), b.Key, proto.Request{Verb: proto.Wipe, Serial: b.Snap.Drive.Serial(), Session: b.Snap.Session.Add(time.Second)}); err == nil {
+		t.Error("the demo took a stale confirm")
+	}
+	if _, err := f.Call(context.Background(), b.Key, proto.Request{Verb: proto.Wipe, Serial: b.Snap.Drive.Serial(), Session: b.Snap.Session}); err != nil {
+		t.Error(err)
+	}
+	if b, _ := f.Bay("dock-host/bay2"); b.Snap.State != model.Running {
+		t.Errorf("after wipe: %s", b.Snap.State)
+	}
+
+	// The whole demo renders.
+	h := (&Server{Fleet: f, Store: &records.Store{Root: t.TempDir()}, Version: "test"}).Handler()
+	for _, p := range []string{"/", "/bays/dock-host/bay1", "/bays/dock-host/bay2", "/bays/dev-host/dock", "/bays/dev-host/sas0", "/api/frame"} {
+		if w := get(h, p); w.Code != 200 {
+			t.Errorf("%s: %d", p, w.Code)
+		}
 	}
 }

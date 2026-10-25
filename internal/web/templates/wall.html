@@ -1,0 +1,56 @@
+{{define "content"}}
+<h1 class="sr">The wall of bays</h1>
+<section id="wall" data-fragment="/fragment/wall" data-every-bay>
+{{template "tiles" .W}}
+</section>
+<p id="say" class="sr" role="status" aria-live="polite"></p>
+{{template "recent" .Recent}}
+{{end}}
+
+{{define "tiles"}}
+{{range .}}
+<section class="host">
+  <h2 class="host-name">{{.Host}}</h2>
+  <div class="tiles">
+  {{range .Tiles}}
+  <a class="tile tile-{{lower .State}}{{with .Snap.Drive}}{{if .LooksLikeBackup}} tile-warn{{end}}{{end}}" href="{{.Path}}" data-key="{{.Key}}" data-sig="{{.Sig}}">
+    <div class="tile-head">
+      <span class="tile-name">{{.Name}}</span>
+      {{template "state" .State}}
+    </div>
+    {{with .Snap.Drive}}{{with .SMART}}
+    <div class="tile-model">{{.Model}} <span class="muted">· {{size .CapacityBytes}}</span></div>
+    <div class="tile-serial">{{template "serial" .Serial}}</div>
+    {{end}}{{end}}
+    {{if eq .State "OFFLINE"}}
+      <p class="tile-line">Link down.  Last heard {{when .Seen}}.</p>
+    {{else if eq .State "EMPTY"}}
+      <p class="tile-line muted">Nothing in the bay.</p>
+    {{else if eq .State "READING"}}
+      <p class="tile-line muted">Reading the drive…</p>
+    {{else if eq .State "RUNNING"}}
+      {{with .Live}}
+      <div class="mini dos-cells" data-field="mini" data-cells aria-hidden="true">{{cells .Mini}}</div>
+      <p class="tile-line"><strong data-field="pct">{{.Pct}}</strong> · <span data-field="phase">{{.Phase}}</span></p>
+      {{end}}
+    {{else if eq .State "DONE"}}
+      <p class="tile-line">Wiped and verified.</p>
+    {{else if eq .State "FAILED"}}
+      <p class="tile-line">The wipe failed.  Evidence inside.</p>
+    {{else if eq .State "INTERRUPTED"}}
+      <p class="tile-line">Interrupted mid-wipe.</p>
+    {{else if eq .State "ALARM"}}
+      <p class="tile-line"><strong>Stopped itself.  Look now.</strong></p>
+    {{else if .Snap.Refusals}}
+      <p class="tile-line">Za Wiper won't act on this.</p>
+    {{else}}{{with .Snap.Drive}}
+      <p class="tile-line{{if .LooksLikeBackup}} why{{end}}">{{if .LooksLikeBackup}}⚠ Looks like a backup.{{else}}{{found .}}{{end}}</p>
+    {{end}}{{end}}
+  </a>
+  {{end}}
+  </div>
+</section>
+{{else}}
+<p class="lede">No bays have checked in yet.  Each bay dials the hub when its link starts, and turns up here.</p>
+{{end}}
+{{end}}
