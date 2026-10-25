@@ -34,6 +34,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 ### Non-goals
 
 - Access from the internet, or any kind of public lookup.
+- A file browser.  The disk side has no network and the hub has no device, so drive contents never cross the link.  Records never hold what was on a drive either.  If you want something off a drive, eject it and mount it on a workstation read-only.  The inspect page shows the partitions, labels and used space, and a wipe needs the serial typed in, so you get a last look before anything is erased (xram, 2026-10-25).
 - Being someone else's audit.  But the target is to **satisfy NIST SP 800-88 Rev. 2** (xram, 2026-10-24).  Rev. 2 replaced Rev. 1 in September 2025.  Apart from crypto erase, it no longer lists techniques itself; it defers to IEEE 2883-2022.  So, for each media type:
   - **Purge where the drive allows it.**  That means the drive's own sanitize command (overwrite, block erase, or crypto erase), from IEEE 2883's table for that interface.
   - **Clear otherwise.**  That's our keystream overwrite with full read-back.  It can't reach sectors the drive has remapped.
