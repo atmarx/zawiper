@@ -319,6 +319,7 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - `/srv/zawiper` in backup scope
   - a Woodpecker deploy lane
   - **Done 2026-10-24:** the route `https://zawiper.example.org` → `192.0.2.18:8460`, private ranges only, with the WAF; the homelab spec is now a pointer to this one.
+  - **Done 2026-10-25:** the route now goes to `zaweb:8460` on the gateway network (homelab c608965).  The migration left it pointing at dock-host, which 502ed.
   - **Hub placement, decided (xram, 2026-10-24):** a stack on hub-host.  It moves in Phase 2, when the hub connection replaces the local socket.
     - Its `/opt/<stack>/data` is already in the hourly restic job.
     - `/mnt/nas` is already mounted, so staging needs no new export.
