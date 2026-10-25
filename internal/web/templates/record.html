@@ -4,6 +4,7 @@
 <p class="crumbs noprint"><a href="/drives">Drives</a> / <a href="/drives/{{$.Dir}}">{{.Serial}}</a> /</p>
 <div class="actions noprint">
   <button type="button" class="btn" data-print>{{if $.Cert}}Print the sheet{{else}}Print or save PDF{{end}}</button>
+  {{if $.Cert}}<a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/proof.zip">proof.zip</a>{{end}}
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.md?download">record.md</a>
   <a class="btn" href="/drives/{{$.Dir}}/{{.ID}}/record.json?download">record.json</a>
   {{with $.Cert}}{{if .Seal.Signed}}<a class="btn" href="/drives/{{$.Dir}}/{{$.R.ID}}/record.json.sig?download">record.json.sig</a>{{end}}{{end}}
@@ -138,7 +139,9 @@
         {{$.Cert.QR}}
         <span class="lbl-url">{{.}}</span>
       </div>
-      {{end}}
+      {{else}}{{if .Seal.Signed}}
+      <div class="lbl-link"><span class="lbl-url">Signed proof on request · {{.R.ID}}</span></div>
+      {{end}}{{end}}
     </section>
 
     <section class="q q-cert">

@@ -244,7 +244,7 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
 
   A cropped surface map with the health headline also makes the listing photo.
 - **The sheet travels with the drive (xram, 2026-10-25).**  When a wipe finishes, the hub sends the certificate to a color printer, unattended.  It's folded in quarters and taped to the outside of the static bag, so it's laid out for the fold:
-  - **The outside quarter is the label:** serial in large type, model and size, the verdict, the grade, the date, and a QR code to the record.  It reads through tape without unfolding.
+  - **The outside quarter is the label:** serial in large type, model and size, the verdict, the grade, the date, and "Signed proof on request" with the record ID.  It reads through tape without unfolding.  A hub given a public `-site-url` prints a QR code to the record there instead; at home there isn't one.
   - **The inside is the certificate,** with the surface map in color.
   - **A failed drive prints too,** as a red "not for sale" sheet, so it can't drift back into the sell pile.
   - **The same render saves as a PNG** for the listing: one image per drive, ready to post or give away.
@@ -334,7 +334,9 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - Does the link's key reach it through `LoadCredential=`?  The fallback is `root:zawiper 0640`.
   - Does the read (smartctl, blkid, mounts in the private namespace) still work under the hardened `bayd@`?
   - Does `Sys.Eject` spin the drive down through the ASMedia bridge?
-- **What a buyer can reach:** the hub is LAN-only, so the record URL, the QR and `/za-wiper.pub` on a certificate lead nowhere for a buyer.  Undecided: publish the key and the records somewhere public, or print the key on the sheet and ship `record.json` with the drive.  The same goes for where a buyer gets `zverify`.  `record.md` already carries a check that needs only `openssl` and `cmp`.
+- **What a buyer can reach:** decided 2026-10-25 — nothing, unless they ask.  Records stay on the hub.  A listing says the cryptographic proof is available on request, and the record page's `proof.zip` is what gets sent: `record.json`, its signature, `record.md`, the SMART files, and `za-wiper.pub`.  Every check in `record.md` points at the files beside it.  Most buyers won't care, and that's fine.
+  - Still open: where a buyer who does care gets `zverify`.  Until there's an answer, `record.md` carries a check that needs only `openssl` and `cmp`, plus `ssh-keygen` for the signature.
+  - At an institution, public proof may matter.  `-site-url` puts the record's address and a QR code back on the sheet once a hub has a public address to give.
 - **Zim:** the seed pipeline stages whatever the catalog has newest, so a hold in a manifest is only a comment to it.  Holds need to be real (a pinned `file:` in the manifest) before the next push that should run seed.
 
 ---

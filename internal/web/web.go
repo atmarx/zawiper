@@ -8,6 +8,7 @@
 package web
 
 import (
+	"archive/zip"
 	"crypto/ed25519"
 	"embed"
 	"encoding/json"
@@ -131,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /drives", s.drives)
 	mux.HandleFunc("GET /drives/{serial}", s.drive)
 	mux.HandleFunc("GET /drives/{serial}/{id}", s.record)
+	mux.HandleFunc("GET /drives/{serial}/{id}/proof.zip", s.proof)
 	mux.HandleFunc("GET /drives/{serial}/{id}/{file}", s.file)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(static))))
 	mux.HandleFunc("GET /za-wiper.pub", s.pubkey)
@@ -445,6 +447,42 @@ func (s *Server) pubkey(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Write([]byte(sign.AuthorizedKey(s.Signer.Key.Public().(ed25519.PublicKey)) + "\n"))
+}
+
+// proof is everything a buyer needs to check a record without reaching this
+// hub: the record's files, its signature, and the key it was signed with.
+// Records stay home; this is what gets sent when someone asks.
+func (s *Server) proof(w http.ResponseWriter, r *http.Request) {
+	serial, id := r.PathValue("serial"), r.PathValue("id")
+	if _, err := s.Store.Record(serial, id); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	names := make([]string, 0, len(records.Files))
+	for name := range records.Files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	dir := serial + "-" + id + "/"
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+serial+"-"+id+`.zip"`)
+	z := zip.NewWriter(w)
+	add := func(name string, b []byte) {
+		if f, err := z.Create(dir + name); err == nil {
+			f.Write(b)
+		}
+	}
+	for _, name := range names {
+		if b, err := os.ReadFile(s.Store.Path(serial, id, name)); err == nil {
+			add(name, b)
+		}
+	}
+	if s.Signer != nil {
+		add("za-wiper.pub", []byte(sign.AuthorizedKey(s.Signer.Key.Public().(ed25519.PublicKey))+"\n"))
+	}
+	if err := z.Close(); err != nil {
+		log.Printf("proof %s/%s: %v", serial, id, err)
+	}
 }
 
 func (s *Server) file(w http.ResponseWriter, r *http.Request) {

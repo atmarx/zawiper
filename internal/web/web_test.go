@@ -1,7 +1,10 @@
 package web
 
 import (
+	"archive/zip"
 	"bufio"
+	"bytes"
+	"io"
 	"context"
 	"errors"
 	"html/template"
@@ -698,6 +701,61 @@ func TestCertificate(t *testing.T) {
 		if strings.Contains(page, bad) {
 			t.Errorf("record page says %q", bad)
 		}
+	}
+}
+
+// TestProofAtHome is a hub with no public address: the sheet carries no
+// dead links, and proof.zip holds everything a buyer needs to check it.
+func TestProofAtHome(t *testing.T) {
+	store, w, _ := signedWipe(t)
+	keyPath := filepath.Join(t.TempDir(), "za-wiper")
+	sign.GenerateKey(keyPath)
+	k, _ := sign.LoadKey(keyPath)
+	home := &sign.Signer{Key: k}
+	if err := home.SignRecord(store, w.Serial, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	page := recordPage(t, w, home.Seal(store, w.Serial, w.ID))
+	for _, want := range []string{"Signed proof on request · " + w.ID, "zverify -pubkey za-wiper.pub record.json /dev/sdX", "proof.zip"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("record page lacks %q", want)
+		}
+	}
+	for _, bad := range []string{`<svg class="qr"`, "https://", "Published at"} {
+		if strings.Contains(page, bad) {
+			t.Errorf("record page says %q", bad)
+		}
+	}
+
+	h := (&Server{Fleet: &fakeFleet{}, Store: store, Signer: home, Hosts: []string{host}, Version: "test"}).Handler()
+	req := httptest.NewRequest("GET", "http://"+host+"/drives/"+w.Serial+"/"+w.ID+"/proof.zip", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != 200 || !strings.Contains(rr.Header().Get("Content-Disposition"), w.Serial+"-"+w.ID+".zip") {
+		t.Fatalf("proof.zip: %d %v", rr.Code, rr.Header())
+	}
+	z, err := zip.NewReader(bytes.NewReader(rr.Body.Bytes()), int64(rr.Body.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]byte{}
+	for _, f := range z.File {
+		rc, _ := f.Open()
+		got[strings.TrimPrefix(f.Name, w.Serial+"-"+w.ID+"/")], _ = io.ReadAll(rc)
+		rc.Close()
+	}
+	for _, name := range []string{"record.json", "record.json.sig", "record.md", "za-wiper.pub"} {
+		if len(got[name]) == 0 {
+			t.Errorf("proof.zip lacks %s; has %v", name, z.File)
+		}
+	}
+	pub, err := sign.SignedBy(got["record.json.sig"])
+	if err != nil || sign.Verify(pub, got["record.json"], got["record.json.sig"]) != nil ||
+		string(got["za-wiper.pub"]) != sign.AuthorizedKey(pub)+"\n" {
+		t.Errorf("the zip's signature doesn't check against its key: %v", err)
+	}
+	if !strings.Contains(string(got["record.md"]), "zverify -pubkey za-wiper.pub record.json") {
+		t.Error("record.md in the zip points somewhere other than the files beside it")
 	}
 }
 

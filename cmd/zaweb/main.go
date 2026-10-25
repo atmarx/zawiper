@@ -38,7 +38,7 @@ func main() {
 	tlsCert := flag.String("tls-cert", "/etc/zawiper/tls/hub.crt", "the hub's certificate for the link")
 	tlsKey := flag.String("tls-key", "/etc/zawiper/tls/hub.key", "the hub's key for the link")
 	signKey := flag.String("sign-key", "/srv/zawiper/keys/za-wiper", "the key records are signed with; made on first start if it's missing")
-	site := flag.String("site-url", "https://zawiper.example.org", "the hub's address, printed on certificates; empty leaves it off")
+	site := flag.String("site-url", "", "a public address for the hub, printed on certificates with a QR code; empty keeps records home, and buyers get proof.zip on request")
 	flag.Parse()
 
 	var fleet hub.Fleet
