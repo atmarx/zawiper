@@ -34,7 +34,13 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 ### Non-goals
 
 - Access from the internet, or any kind of public lookup.
-- Certification.  The certificate follows NIST SP 800-88's *Clear* level and its sample certificate, but it's our statement of what this machine did, not an audit.  *Purge* needs the drive's own SANITIZE or ATA Secure Erase.  We'll record it when the bridge or HBA passes it through, and we won't claim it when it doesn't.
+- Being someone else's audit.  But the target is to **satisfy NIST SP 800-88 Rev. 2** (xram, 2026-10-24).  Rev. 2 replaced Rev. 1 in September 2025.  Apart from crypto erase, it no longer lists techniques itself; it defers to IEEE 2883-2022.  So, for each media type:
+  - **Purge where the drive allows it.**  That means the drive's own sanitize command (overwrite, block erase, or crypto erase), from IEEE 2883's table for that interface.
+  - **Clear otherwise.**  That's our keystream overwrite with full read-back.  It can't reach sectors the drive has remapped.
+  - **Every sanitization is verified,** and every certificate names the level, the technique, and the standard clause.
+  - **Flash only ever gets firmware sanitize.**  An overwrite proves nothing on an SSD.
+  - We never claim Purge when the command wasn't available or didn't get through the bridge.
+  - 9VPAX9NA (ATA8-ACS, which predates SANITIZE) offers only ATA Security Erase.  Whether that counts as Purge under IEEE 2883, and whether the USB bridge passes it, are both open (§11).
 
 ## 2. Decisions (xram, 2026-10-23 and 24)
 
@@ -309,6 +315,9 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
   - **The CA:** an offline root made with the `step` CLI, with no step-ca server.  The root key stays with the DR keys.  The hub gets a server certificate, and each bay a one-year client certificate.  Val mints them once the bay names are settled.
   - **Deploys:** the Woodpecker lane covers the hub.  `bayd` ships by fleet play (§8).
   - Dock hosts need no NFS export.
+- **NIST 800-88 Rev. 2 / IEEE 2883:** get IEEE 2883-2022.  It's paywalled, and its per-interface technique table is the spec for Purge.  Then:
+  - Map each bay type to the sanitize commands it actually passes through.
+  - Test ATA Security Erase through the ASMedia bridge on a drive we can afford to brick.  A failed erase can leave the drive locked with the temporary password.
 - **SAS:** a USB-to-SAS adapter versus an LSI HBA in IT mode with SFF-8482 breakouts.  xram has a PCIe RAID card to try.  It qualifies only if it runs as a plain HBA (IT firmware, or a mode that loads `mpt3sas`/`mpt2sas`, not `megaraid_sas`).  It can go straight into a host or be passed through to a VM.
   - The adapter's own listing warns that SMART comes through incomplete or not at all, so the bay would refuse.
   - The HBA gives full SCSI health data, `sg_format` for 520-byte drives, and SANITIZE.  That's the Purge route.
