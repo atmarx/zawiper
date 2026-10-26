@@ -12,7 +12,7 @@ The first real wipe ran that day.  Where v0.1 had more detail than this, and tha
 
 ## 1. What it is
 
-Drive docks on any host assigned to the job, each run by a `bayd`, all reporting to one hub.  A local-only web page at **`zawiper.example.org`** shows every bay on one wall.  The first dock is a USB caddy on dev-host, passed through by port to `dock-host` (192.0.2.18).
+Drive docks on any host assigned to the job, each run by a `bayd`, all reporting to one hub.  A local-only web page at **`zawiper.example.org`** shows every bay on one wall.  The first dock, a two-slot USB caddy, was passed through from dev-host to `dock-host` (192.0.2.18).  Since 2026-10-25 it is on bare metal: `dock-host-2` (192.0.2.13), port `2-1`, as bays `bay1` (slot 0) and `bay2` (slot 1).
 
 **Mostly, it wipes drives for sale.**  Buyers on eBay and r/homelabsales want three things: a blank drive, proof nothing's left on it, and that drive's own health.  The record is that proof, and it prints as a certificate (§7).  Loading an Ark is the rarer job, for drives given as gifts or handed out.
 
