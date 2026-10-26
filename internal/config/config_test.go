@@ -61,6 +61,8 @@ func TestRefusals(t *testing.T) {
 		{"The Bay", "name = \"The Bay\"\nusb_port = \"10-1\"", "bay name"},
 		{"b1", "name = \"b1\"\nusb_port = \"sdc\"", "isn't a sysfs port"},
 		{"b1", "name = \"b1\"\nusb_port = \"10-1/../2\"", "isn't a sysfs port"},
+		{"b1", "name = \"b1\"\nusb_lun = \"1\"\nsas_path = \"pci-0000:03:00.0-sas-phy2-lun-0\"", "without usb_port"},
+		{"b1", "name = \"b1\"\nusb_port = \"10-1\"\nusb_lun = \"*\"", "isn't a LUN number"},
 		{"b1", "name = \"b1\"\nsas_path = \"/dev/sda\"", "isn't a SAS by-path"},
 		{"b1", "name = \"b1\"\nsas_path = \"pci-0000:00:17.0-ata-1\"", "isn't a SAS by-path"},
 		{"b1", "name = \"b1\"\nsas_path = \"pci-0000:03:00.0-sas-phy2-lun-0-part1\"", "names a partition"},
@@ -103,5 +105,20 @@ func TestLoadBays(t *testing.T) {
 	write("c.toml", "name = \"c\"\nusb_port = \"10-1\"\n")
 	if _, err := LoadBays(dir); err == nil || !strings.Contains(err.Error(), "One device, one bay") {
 		t.Fatalf("two bays on one port: %v", err)
+	}
+
+	// A two-slot dock: one bay per LUN is fine, and a whole-port bay or a
+	// repeated LUN is not.
+	write("a.toml", "name = \"a\"\nusb_port = \"10-1\"\nusb_lun = \"0\"\n")
+	write("c.toml", "name = \"c\"\nusb_port = \"10-1\"\nusb_lun = \"1\"\n")
+	bays, err = LoadBays(dir)
+	if err != nil || len(bays) != 3 || bays[2].Selector() != "usb_port 10-1 lun 1" {
+		t.Fatalf("one bay per slot: %v %+v", err, bays)
+	}
+	for _, c := range []string{"name = \"d\"\nusb_port = \"10-1\"\n", "name = \"d\"\nusb_port = \"10-1\"\nusb_lun = \"1\"\n"} {
+		write("d.toml", c)
+		if _, err := LoadBays(dir); err == nil || !strings.Contains(err.Error(), "One device, one bay") {
+			t.Errorf("%q beside slots 0 and 1: %v", c, err)
+		}
 	}
 }

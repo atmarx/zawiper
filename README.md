@@ -51,15 +51,16 @@ The host needs `smartmontools`, `hdparm` (the HPA and DCO check, IEEE 2883 §8.4
 
 ### Provision a bay
 
-1. **Find the selector.**  For a USB dock: unpack the bundle on the host, put a drive in, and run `sudo bin/bayd ports`.  It lists each USB disk and the port it's on (`10-1`), as this machine's sysfs names it.  For a SAS HBA port: `ls -l /dev/disk/by-path/ | grep sas` and take the whole disk's name (`pci-0000:03:00.0-sas-phy2-lun-0`, not a `-part`).  An HBA qualifies only in IT/HBA mode (`mpt3sas`), never behind `megaraid_sas` (spec §4.1).
+1. **Find the selector.**  For a USB dock: unpack the bundle on the host, put a drive in, and run `sudo bin/bayd ports`.  It lists each USB disk, the port it's on (`10-1`) as this machine's sysfs names it, and its LUN.  A dock with two slots shows them as LUNs 0 and 1 on one port.  For a SAS HBA port: `ls -l /dev/disk/by-path/ | grep sas` and take the whole disk's name (`pci-0000:03:00.0-sas-phy2-lun-0`, not a `-part`).  An HBA qualifies only in IT/HBA mode (`mpt3sas`), never behind `megaraid_sas` (spec §4.1).
 2. **Write `/etc/zawiper/bays/<name>.toml`**, root-owned.  The name is 1-32 of `a-z 0-9 _ -`, and it must match the file's name:
    ```
    name = "dock-a"
    usb_port = "10-1"                              # or: sas_path = "pci-0000:03:00.0-sas-phy2-lun-0"
+   usb_lun = "0"                                  # optional: one slot of a multi-slot dock
    smart_type = "sat"                             # sat for USB-SATA; scsi for SAS (the default with sas_path)
    caps = "wipe"                                  # wipe, load, sas; none means it only reads
    ```
-   Exactly one selector.  Two bays with the same selector, an unknown key, or a leftover `port =` all fail the install, before it changes anything.
+   Exactly one selector.  Without `usb_lun`, the bay is the whole port and refuses to act while it sees two drives.  With it, write one bay per slot.  A swap in either slot resets the whole dock and interrupts a job in the other, so swap only when the dock's bays are idle.  Two bays that can reach the same drive, an unknown key, or a leftover `port =` all fail the install, before it changes anything.
 3. **Its certificate.**  Where the CA lives: `deploy/ca.sh bay <host> <name>` makes a one-year client certificate, CN `bay/<host>/<name>`.  Copy `zawiper-certs/<host>/{ca.crt,<name>.crt,<name>.key}` to the host's `/etc/zawiper/tls/`.  The key is `root:root 0600`; the link gets it as a systemd credential, so each link reads only its own.
 4. **Install:** `make bay HOST=<host>`, or `sudo deploy/install-bay.sh [--hub host:8461]` from an unpacked bundle.  The hub address goes in `/etc/zawiper/link.env` the first time; the default is `zawiper.example.org:8461`.
 

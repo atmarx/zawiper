@@ -28,6 +28,9 @@ type Sys struct {
 	// Port is the bay's USB port as this machine's sysfs names it ("10-1").
 	// Every block device whose sysfs path runs through it is the bay's.
 	Port string
+	// LUN, when set, narrows Port to one slot of a dock that shows each
+	// slot as a LUN of one USB device.
+	LUN string
 	// SASPath is the disk's name in /dev/disk/by-path
 	// ("pci-0000:03:00.0-sas-phy2-lun-0").  The disk it names is the bay's,
 	// and so is any other LUN on the same SCSI target, so that the one-LUN
@@ -55,6 +58,7 @@ func NewSys(cfg *config.Bay) (*Sys, error) {
 	}
 	return &Sys{
 		Port:      cfg.USBPort,
+		LUN:       cfg.USBLUN,
 		SASPath:   cfg.SASPath,
 		SmartType: cfg.SmartType,
 		RunDir:    filepath.Join("/run/zawiper", cfg.Name),
@@ -101,6 +105,20 @@ func (s *Sys) usbDir(real string) string {
 	return ""
 }
 
+// lun returns the LUN of the SCSI device in a block device's resolved path
+// (".../target8:0:0/8:0:0:1/block/sdd" is LUN 1), or "" if there isn't one.
+func lun(real string) string {
+	segs := strings.Split(real, "/")
+	for i := 1; i < len(segs); i++ {
+		if strings.HasPrefix(segs[i-1], "target") {
+			if f := strings.Split(segs[i], ":"); len(f) == 4 {
+				return f[3]
+			}
+		}
+	}
+	return ""
+}
+
 // sasTarget returns the sysfs directory of the SCSI target behind the bay's
 // by-path name ("…/end_device-0:2/target0:0:2"), or "" when nothing is
 // there.  Every block device under it is on the bay.
@@ -137,7 +155,7 @@ func (s *Sys) selector() (func(real string) bool, error) {
 	case s.Port != "" && s.SASPath != "":
 		return nil, errors.New("the bay has both a USB port and a SAS path")
 	case s.Port != "":
-		return func(real string) bool { return s.usbDir(real) != "" }, nil
+		return func(real string) bool { return s.usbDir(real) != "" && (s.LUN == "" || lun(real) == s.LUN) }, nil
 	case s.SASPath != "":
 		t, err := s.sasTarget()
 		if err != nil || t == "" {

@@ -12,6 +12,7 @@ import (
 
 var bays = []*config.Bay{
 	{Name: "dock-a", USBPort: "10-1", SmartType: "sat", Caps: []string{"wipe"}},
+	{Name: "slot1", USBPort: "4-2", USBLUN: "1", SmartType: "sat", Caps: []string{"wipe"}},
 	{Name: "hba0", SASPath: "pci-0000:03:00.0-sas-phy2-lun-0", SmartType: "scsi"},
 }
 
@@ -26,6 +27,9 @@ func TestRules(t *testing.T) {
 		`SUBSYSTEM=="scsi_generic", ENV{ID_PATH}=="pci-0000:03:00.0-sas-phy2-lun-0", SYMLINK+="zawiper/hba0-sg"`,
 		`'DeviceAllow=/dev/zawiper/hba0-sg rw'`,
 		`IMPORT{builtin}="path_id"`,
+		"# bay slot1: usb_port 4-2 lun 1\n",
+		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="zawiper/slot1"`,
+		`SUBSYSTEM=="scsi_generic", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="zawiper/slot1-sg"`,
 	} {
 		if !strings.Contains(r, want) {
 			t.Errorf("rules lack %s\n%s", want, r)
@@ -67,12 +71,12 @@ func TestWrite(t *testing.T) {
 	if err := write(out, bays); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"61-zawiper.rules", "units/bayd@dock-a.service.d/10-zawiper-device.conf", "units/bayd@hba0.service.d/10-zawiper-device.conf"} {
+	for _, f := range []string{"61-zawiper.rules", "units/bayd@dock-a.service.d/10-zawiper-device.conf", "units/bayd@slot1.service.d/10-zawiper-device.conf", "units/bayd@hba0.service.d/10-zawiper-device.conf"} {
 		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
 			t.Error(err)
 		}
 	}
-	if b, _ := os.ReadFile(filepath.Join(out, "bays")); string(b) != "dock-a\nhba0\n" {
+	if b, _ := os.ReadFile(filepath.Join(out, "bays")); string(b) != "dock-a\nslot1\nhba0\n" {
 		t.Errorf("bays: %q", b)
 	}
 }

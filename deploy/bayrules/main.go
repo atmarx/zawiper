@@ -109,6 +109,12 @@ func rules(bays []*config.Bay) string {
 			// Any device whose sysfs path runs through the port, as bay.Sys
 			// matches it.  "/10-1/" doesn't match ports 110-1 or 10-12.
 			match = fmt.Sprintf(`DEVPATH=="*/usb*/%s/*"`, b.USBPort)
+			if b.USBLUN != "" {
+				// The SCSI device under the target: ".../target8:0:0/8:0:0:1/".
+				// ":1/" doesn't match LUN 11, and the block and sg nodes
+				// both hang off it.
+				match = fmt.Sprintf(`DEVPATH=="*/usb*/%s/*/target*/*:%s/*"`, b.USBPort, b.USBLUN)
+			}
 		} else {
 			match = fmt.Sprintf(`ENV{ID_PATH}=="%s"`, b.SASPath)
 		}

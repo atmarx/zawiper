@@ -32,6 +32,7 @@ var (
 	nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 	// A USB port as sysfs names it: bus-port, then .port per hub.
 	usbRE = regexp.MustCompile(`^[0-9]+-[0-9]+(\.[0-9]+)*$`)
+	lunRE = regexp.MustCompile(`^[0-9]{1,3}$`)
 	// A /dev/disk/by-path name: no slashes, nothing that needs quoting in a
 	// udev rule.
 	byPathRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:._-]*$`)
@@ -41,8 +42,11 @@ var (
 type Bay struct {
 	Name string
 	// Exactly one selector is set.
-	USBPort   string // "10-1": the dock's port, as this machine's sysfs names it
-	SASPath   string // "pci-0000:03:00.0-sas-phy2-lun-0": a /dev/disk/by-path name
+	USBPort string // "10-1": the dock's port, as this machine's sysfs names it
+	SASPath string // "pci-0000:03:00.0-sas-phy2-lun-0": a /dev/disk/by-path name
+	// USBLUN narrows usb_port to one slot of a dock that shows each slot
+	// as a LUN of one USB device ("0", "1").  "" takes the whole port.
+	USBLUN    string
 	SmartType string // smartctl -d: "sat" or "scsi"
 	Caps      []string
 	Path      string // the file it came from
@@ -62,6 +66,9 @@ func (b *Bay) Can(c string) bool {
 func (b *Bay) Selector() string {
 	if b.SASPath != "" {
 		return "sas_path " + b.SASPath
+	}
+	if b.USBLUN != "" {
+		return "usb_port " + b.USBPort + " lun " + b.USBLUN
 	}
 	return "usb_port " + b.USBPort
 }
@@ -102,6 +109,8 @@ func ParseBay(path string, r io.Reader) (*Bay, error) {
 			b.Name, err = str(path, k, v)
 		case "usb_port":
 			b.USBPort, err = str(path, k, v)
+		case "usb_lun":
+			b.USBLUN, err = str(path, k, v)
 		case "sas_path":
 			b.SASPath, err = str(path, k, v)
 		case "smart_type":
@@ -115,7 +124,7 @@ func ParseBay(path string, r io.Reader) (*Bay, error) {
 		case "port":
 			return nil, fmt.Errorf("%s: `port` is the Phase 1 key.  Rename it `usb_port`, give the bay a name, and keep one file per bay in %s/<name>.toml", path, BaysDir)
 		default:
-			return nil, fmt.Errorf("%s: unknown key %q (keys: name, usb_port, sas_path, smart_type, caps)", path, k)
+			return nil, fmt.Errorf("%s: unknown key %q (keys: name, usb_port, usb_lun, sas_path, smart_type, caps)", path, k)
 		}
 		if err != nil {
 			return nil, err
@@ -142,6 +151,10 @@ func (b *Bay) check() error {
 		return fmt.Errorf("%s: both usb_port and sas_path.  A bay has exactly one selector", p)
 	case b.USBPort != "" && !usbRE.MatchString(b.USBPort):
 		return fmt.Errorf("%s: usb_port %q isn't a sysfs port name like \"10-1\" or \"3-2.4\"", p, b.USBPort)
+	case b.USBLUN != "" && b.USBPort == "":
+		return fmt.Errorf("%s: usb_lun %q without usb_port.  It picks a slot on a USB dock", p, b.USBLUN)
+	case b.USBLUN != "" && !lunRE.MatchString(b.USBLUN):
+		return fmt.Errorf("%s: usb_lun %q isn't a LUN number like \"0\" or \"1\"", p, b.USBLUN)
 	case b.SASPath != "":
 		if !byPathRE.MatchString(b.SASPath) || !strings.Contains(b.SASPath, "-sas-") {
 			return fmt.Errorf("%s: sas_path %q isn't a SAS by-path name like \"pci-0000:03:00.0-sas-phy2-lun-0\"", p, b.SASPath)
@@ -181,19 +194,28 @@ func LoadBays(dir string) ([]*Bay, error) {
 	}
 	sort.Strings(paths)
 	var bays []*Bay
-	by := map[string]string{}
 	for _, p := range paths {
 		b, err := LoadBay(p)
 		if err != nil {
 			return nil, err
 		}
-		if other, ok := by[b.Selector()]; ok {
-			return nil, fmt.Errorf("bays %s and %s both have %s.  One device, one bay", other, b.Name, b.Selector())
+		for _, o := range bays {
+			if overlap(o, b) {
+				return nil, fmt.Errorf("bays %s (%s) and %s (%s) can both reach one drive.  One device, one bay", o.Name, o.Selector(), b.Name, b.Selector())
+			}
 		}
-		by[b.Selector()] = b.Name
 		bays = append(bays, b)
 	}
 	return bays, nil
+}
+
+// overlap says whether two bays' selectors can match the same disk.  A bay
+// on a whole USB port takes every LUN on it.
+func overlap(a, b *Bay) bool {
+	if a.USBPort != "" && a.USBPort == b.USBPort {
+		return a.USBLUN == "" || b.USBLUN == "" || a.USBLUN == b.USBLUN
+	}
+	return a.Selector() == b.Selector()
 }
 
 // value is a parsed right-hand side: a string or a list of strings.

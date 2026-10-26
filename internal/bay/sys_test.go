@@ -134,6 +134,30 @@ func TestSysUSB(t *testing.T) {
 	}
 }
 
+// A two-slot dock is one USB device with a LUN per slot.  A bay on the whole
+// port sees both drives (and refuses); a bay per LUN sees its own.
+func TestSysUSBLUN(t *testing.T) {
+	f := newFakeTree(t)
+	usb := "sys/devices/pci0000:00/0000:00:14.0/usb10/10-1"
+	f.disk(t, "sdf", usb+"/10-1:1.0/host6/target6:0:0/6:0:0:1/block/sdf", 1000204886016)
+	f.disk(t, "sdh", usb+"/10-1:1.0/host6/target6:0:0/6:0:0:11/block/sdh", 1000204886016)
+	s := &Sys{Port: "10-1", SysBlock: f.sysBlock, ByPath: f.byPath}
+	if devs, _ := s.Devices(); names(devs) != "sdc,sdf,sdh" {
+		t.Errorf("whole port: %s", names(devs))
+	}
+	for l, want := range map[string]string{"0": "sdc", "1": "sdf", "11": "sdh", "2": ""} {
+		s.LUN = l
+		if devs, _ := s.Devices(); names(devs) != want {
+			t.Errorf("lun %s: %s, want %s", l, names(devs), want)
+		}
+	}
+	// The LUN narrows the port; it doesn't stand alone.
+	s.Port, s.LUN = "11-1", "1"
+	if devs, _ := s.Devices(); len(devs) != 0 {
+		t.Errorf("port 11-1 lun 1: %s", names(devs))
+	}
+}
+
 func TestSysSAS(t *testing.T) {
 	f := newFakeTree(t)
 	s := &Sys{SASPath: "pci-0000:03:00.0-sas-phy0-lun-0", SysBlock: f.sysBlock, ByPath: f.byPath}
@@ -188,7 +212,7 @@ func TestNewSys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Port != "10-1" || s.SASPath != "" || s.SmartType != "sat" || s.RunDir != "/run/zawiper/dock-a" {
+	if s.Port != "10-1" || s.LUN != "" || s.SASPath != "" || s.SmartType != "sat" || s.RunDir != "/run/zawiper/dock-a" {
 		t.Errorf("%+v", s)
 	}
 	s, err = NewSys(&config.Bay{Name: "hba0", SASPath: "pci-0000:03:00.0-sas-phy2-lun-0", SmartType: "scsi"})

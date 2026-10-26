@@ -160,11 +160,19 @@ func ports() {
 		}
 		found = true
 		model, _ := os.ReadFile("/sys/block/" + e.Name() + "/device/model")
-		fmt.Printf("/dev/%-6s port %-8s %s\n", e.Name(), port, strings.TrimSpace(string(model)))
+		// device is the SCSI device, "8:0:0:1": a dock with two slots shows
+		// them as LUNs 0 and 1 of one USB device.
+		lun := "?"
+		if d, err := filepath.EvalSymlinks("/sys/block/" + e.Name() + "/device"); err == nil {
+			if f := strings.Split(filepath.Base(d), ":"); len(f) == 4 {
+				lun = f[3]
+			}
+		}
+		fmt.Printf("/dev/%-6s port %-8s lun %-3s %s\n", e.Name(), port, lun, strings.TrimSpace(string(model)))
 	}
 	if !found {
 		fmt.Println("No USB block devices.  Is the caddy passed through, with a drive in it?")
 		return
 	}
-	fmt.Println("\nWrite /etc/zawiper/bays/<bay>.toml with the bay's port, e.g.:\n  name = \"bay1\"\n  usb_port = \"10-1\"\n  caps = \"wipe\"")
+	fmt.Println("\nWrite /etc/zawiper/bays/<bay>.toml with the bay's port, e.g.:\n  name = \"bay1\"\n  usb_port = \"10-1\"\n  caps = \"wipe\"\nIf one port shows more than one LUN, the dock has a slot per LUN: write a bay\nfor each, with usb_lun = \"0\", usb_lun = \"1\" and so on.  Every slot on a dock\ngoes when the dock resets, so swap drives only when all its bays are idle.")
 }

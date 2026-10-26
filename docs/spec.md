@@ -66,7 +66,8 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 ## 3. Hardware: the facts (Val, Phase 0)
 
 - **The passthrough is live.**  dev-host → `dock-host` (VMID 102), `usb0: host=4-2`, attached by port.
-- **One USB device, two slots** (ASMedia ASM1156-PM bridge).  A swap in either slot resets both.  Nothing the host sees names a physical slot.  **One drive per bay:** `bayd` refuses to act if it sees more than one LUN.
+- **USB passthrough can't take a swap (2026-10-25).**  The dock re-enumerates on every insert and pull.  The first time it did, QEMU's libusb host passthrough hit `usb_host_ep_update: Assertion 'alt < …num_altsetting' failed` and the VM died with it.  On the reboot the guest named the port `5-1`, not `10-1`.  A dock behind a VM needs a whole USB controller passed through (PCIe), so the guest kernel sees the hotplug; or the dock goes on bare metal.
+- **One USB device, two slots** (ASMedia ASM1156-PM bridge).  A swap in either slot resets both.  Nothing the host sees names a physical slot.  **One drive per bay:** `bayd` refuses to act if it sees more than one LUN.  `usb_lun` makes each slot its own bay (§8).
 - **Slot 0 once reported a placeholder size** (4.14 GB for two different drives).  Refuse a drive whose block size doesn't match what SMART reports, or whose SMART can't be read.
 - **`smartctl -d sat` works from inside the VM.**
 - **Key everything on the SMART serial.**  The kernel's serial was all zeros with two drives in the enclosure.
@@ -278,7 +279,7 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
   - **`bayd@<bay>`** is the disk side.  udev starts it when the selector's device appears, and it's bound to that device (`BindsTo=`), so it stops when the drive leaves.  `DeviceAllow=` is resolved fresh on every insert, which sidesteps a re-inserted drive getting a new minor number.  It has no network (`IPAddressDeny=any`, unix sockets only).  It owns the read, the keystream writer and reader, the mounts, and the job, and it talks to its link over a unix socket in `/run/zawiper/<bay>/`.
   - A running job needs nothing from the link or the hub.  Either can restart without touching it.  If the drive leaves mid-job, the link reports **INTERRUPTED** from the job's state file.
   - The wall shows a bay as empty while its link is up and its disk unit isn't running, and as offline when its link is down.
-  - `/etc/zawiper/bays/<bay>.toml` holds the selector, the SMART type (`sat` or `scsi`), and what the bay can do: `wipe`, `load`, `sas`.  A two-slot USB dock is one bay: its port is the selector, and the one-LUN refusal stays.
+  - `/etc/zawiper/bays/<bay>.toml` holds the selector, the SMART type (`sat` or `scsi`), and what the bay can do: `wipe`, `load`, `sas`.  A two-slot USB dock is one bay by default: its port is the selector, and the one-LUN refusal stays.  `usb_lun = "0"` and `usb_lun = "1"` split it into a bay per slot.  A swap in either slot resets both, and systemd stops the other slot's `bayd@` with its device, so a wipe running there ends INTERRUPTED and never gets a record.  Swap only when both bays are idle.
   - Commands, from the hub: `status`, `reread`, `wipe`, `load`, `ack`, `eject`.  No command takes a device, there's no "run this" command, and there's no abort (§4.3).
   - The host can be bare metal or a VM with the dock passed through.  The VM is preferred: a mistake can't reach a hypervisor's own disks.
   - **Releases don't go through CI.**  A key that can install `bayd` can wipe whatever is in a bay.  So `bayd` ships through a `fleet zawiper-bay <host>` play run with xram's become: a pinned binary, plus each bay's config and certificate.  Nothing installs it automatically.
