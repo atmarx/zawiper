@@ -269,6 +269,10 @@ func (s *Sys) InUse(d Device) (string, error) {
 		f := strings.Fields(line)
 		if len(f) > 4 {
 			if n, ok := devnum[f[2]]; ok {
+				if rest, ok := strings.CutPrefix(f[4], BrowseRoot+"/"); ok {
+					bay, _, _ := strings.Cut(rest, "/")
+					return fmt.Sprintf("%s is mounted at %s for browsing; `bayd browse -u %s` on the dock host unmounts it", n, f[4], bay), nil
+				}
 				return fmt.Sprintf("%s is mounted at %s", n, f[4]), nil
 			}
 		}
