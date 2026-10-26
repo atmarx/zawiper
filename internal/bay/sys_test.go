@@ -289,3 +289,15 @@ func TestCapacity(t *testing.T) {
 		t.Errorf("SAS: %+v", c)
 	}
 }
+
+func TestMountsUnder(t *testing.T) {
+	mi := `36 35 98:0 / /mnt rw - ext4 /dev/sda1 rw
+37 36 8:17 / /mnt/zawiper/bay1/part1 ro,nosuid,nodev,noexec - ext4 /dev/sdb1 ro
+38 36 8:22 / /mnt/zawiper/bay1/part6 ro,nosuid,nodev,noexec - ext4 /dev/sdb6 ro
+39 36 8:34 / /mnt/zawiper/bay10/part2 ro - ext4 /dev/sdc2 ro
+40 36 8:35 / /mnt/zawiper/bay1 rw - tmpfs tmpfs rw`
+	got := mountsUnder(mi, "/mnt/zawiper/bay1")
+	if len(got) != 2 || !got["/mnt/zawiper/bay1/part1"] || !got["/mnt/zawiper/bay1/part6"] {
+		t.Errorf("%v", got)
+	}
+}

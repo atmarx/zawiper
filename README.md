@@ -86,6 +86,17 @@ Partitions come and go while the unit runs (the read finds them; a wipe destroys
 
 Nothing on the page stops a run (spec §4.3).  A person with root on the dock host can: `systemctl stop bayd@<bay>`.  The job comes back INTERRUPTED, like a power cut.
 
+### Looking through a drive before a wipe
+
+On the dock host, as root:
+
+```
+bayd browse bay1        # each filesystem, read-only, under /mnt/zawiper/bay1/part<n>
+bayd browse -u bay1     # unmount
+```
+
+The mounts are `ro,noexec,nosuid,nodev`, with no journal or log replay (the read's own options), on a drive bayd has already set read-only in the kernel.  Swap, LVM, LUKS and anything else bayd doesn't open stay unmounted.  Browse them from another machine over SFTP: `sftp://root@<host>/mnt/zawiper/bay1`, or `sshfs -o ro`.  It refuses while the bay is wiping, and the wipe refuses while anything is mounted.
+
 ### Holding a bay
 
 A stopped `bayd@` doesn't stay stopped.  Any udev change on the drive starts it again, and `blockdev --setrw` is one.  To work on a drive by hand, mask it until you're done:

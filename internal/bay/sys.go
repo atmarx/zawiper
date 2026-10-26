@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 
 	"zawiper/internal/config"
 	"zawiper/internal/model"
+	"zawiper/internal/records"
 )
 
 // Sys is the real Source: sysfs, blkid, smartctl, blockdev, mount.
@@ -488,6 +490,111 @@ func (s *Sys) Peek(ctx context.Context, p *model.Part) {
 	case has[".chunks"]:
 		p.Backup = "holds a Proxmox Backup Server datastore"
 	}
+}
+
+// BrowseRoot is where `bayd browse` mounts a bay's filesystems:
+// /mnt/zawiper/<bay>/part<n>.
+const BrowseRoot = "/mnt/zawiper"
+
+// Browse mounts each filesystem on the bay's drive under dir, one directory
+// per partition, for a person to look through before a wipe.  The options
+// are the peek's (no journal or log replay) plus noexec, nosuid and nodev,
+// and the mounts are in the host's namespace so SFTP can reach them.  The
+// drive must already be read-only in the kernel, as bayd leaves it after a
+// read.  While anything is mounted, InUse says so and the wipe refuses.
+// It returns a line per partition.
+func (s *Sys) Browse(ctx context.Context, dir string) ([]string, error) {
+	devs, err := s.Devices()
+	if err != nil {
+		return nil, err
+	}
+	if len(devs) != 1 {
+		return nil, fmt.Errorf("the bay shows %d drives; browse wants exactly one", len(devs))
+	}
+	d := devs[0]
+	if readStr(filepath.Join(s.sysBlock(), d.Name, "ro")) != "1" {
+		return nil, fmt.Errorf("%s isn't read-only in the kernel yet.  Wait for the wall to show it PRESENT", d.Path)
+	}
+	t, err := s.Table(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	mounted := mountsUnder(readMountinfo(), dir)
+	var out []string
+	for _, p := range t.Parts {
+		name, sys := "disk", filepath.Join(s.sysBlock(), d.Name)
+		if p.Path != d.Path {
+			base := filepath.Base(p.Path)
+			sys = filepath.Join(sys, base)
+			name = "part" + readStr(filepath.Join(sys, "partition"))
+		}
+		mp := filepath.Join(dir, name)
+		line := fmt.Sprintf("%-6s %-8s %10s  ", name, cmp.Or(p.FSType, "-"), records.Size(p.Size))
+		m, ok := mountOpts[p.FSType]
+		switch {
+		case p.FSType == "":
+			out = append(out, line+"no filesystem")
+			continue
+		case !ok:
+			out = append(out, line+"not mounted: I don't open "+p.FSType)
+			continue
+		case readStr(filepath.Join(sys, "ro")) != "1":
+			out = append(out, line+"not mounted: the partition isn't read-only in the kernel")
+			continue
+		case mounted[mp]:
+			out = append(out, line+mp+" (already)")
+			continue
+		}
+		if err := os.MkdirAll(mp, 0o755); err != nil {
+			return out, err
+		}
+		if res, _, err := run(ctx, "mount", "-t", m.fs, "-o", m.opts+",noexec,nosuid,nodev", p.Path, mp); err != nil {
+			os.Remove(mp)
+			out = append(out, line+fmt.Sprintf("couldn't mount: %v %s", err, firstLine(res)))
+			continue
+		}
+		out = append(out, line+mp)
+	}
+	return out, nil
+}
+
+// Unbrowse unmounts everything Browse mounted under dir and removes the
+// mount points.  It returns what it unmounted.
+func Unbrowse(dir string) ([]string, error) {
+	var done []string
+	var errs []error
+	for mp := range mountsUnder(readMountinfo(), dir) {
+		if res, _, err := run(context.Background(), "umount", mp); err != nil {
+			errs = append(errs, fmt.Errorf("umount %s: %v %s", mp, err, firstLine(res)))
+			continue
+		}
+		done = append(done, mp)
+	}
+	sort.Strings(done)
+	if ents, err := os.ReadDir(dir); err == nil {
+		for _, e := range ents {
+			os.Remove(filepath.Join(dir, e.Name())) // only empty ones go
+		}
+		os.Remove(dir)
+	}
+	return done, errors.Join(errs...)
+}
+
+func readMountinfo() string {
+	b, _ := os.ReadFile("/proc/self/mountinfo")
+	return string(b)
+}
+
+// mountsUnder returns the mount points in a mountinfo listing that sit
+// below dir.
+func mountsUnder(mountinfo, dir string) map[string]bool {
+	out := map[string]bool{}
+	for _, line := range strings.Split(mountinfo, "\n") {
+		if f := strings.Fields(line); len(f) > 4 && strings.HasPrefix(f[4], dir+"/") {
+			out[f[4]] = true
+		}
+	}
+	return out
 }
 
 // blkid -p probes the device itself, not udev's cache, which can lag a

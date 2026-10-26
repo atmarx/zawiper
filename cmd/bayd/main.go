@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -30,6 +31,10 @@ var (
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "ports" {
 		ports()
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "browse" {
+		browse(os.Args[2:])
 		return
 	}
 	name := flag.String("bay", "", "the bay's name; picks its config, socket, state file and spool")
@@ -175,4 +180,69 @@ func ports() {
 		return
 	}
 	fmt.Println("\nWrite /etc/zawiper/bays/<bay>.toml with the bay's port, e.g.:\n  name = \"bay1\"\n  usb_port = \"10-1\"\n  caps = \"wipe\"\nIf one port shows more than one LUN, the dock has a slot per LUN: write a bay\nfor each, with usb_lun = \"0\", usb_lun = \"1\" and so on.  Every slot on a dock\ngoes when the dock resets, so swap drives only when all its bays are idle.")
+}
+
+// browse mounts a bay's filesystems read-only for a person to look through
+// before a wipe, or with -u takes them down again.
+//
+//	bayd browse bay1      mount under /mnt/zawiper/bay1
+//	bayd browse -u bay1   unmount
+func browse(args []string) {
+	fs := flag.NewFlagSet("browse", flag.ExitOnError)
+	un := fs.Bool("u", false, "unmount what browse mounted")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: bayd browse [-u] <bay>")
+		fs.PrintDefaults()
+	}
+	fs.Parse(args)
+	if fs.NArg() != 1 {
+		fs.Usage()
+		os.Exit(2)
+	}
+	name := fs.Arg(0)
+	if err := config.ValidName(name); err != nil {
+		log.Fatal(err)
+	}
+	if os.Geteuid() != 0 {
+		log.Fatal("browse mounts and unmounts filesystems: run it as root")
+	}
+	dir := filepath.Join(bay.BrowseRoot, name)
+	if *un {
+		done, err := bay.Unbrowse(dir)
+		for _, mp := range done {
+			fmt.Println("unmounted", mp)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		if len(done) == 0 {
+			fmt.Println("Nothing was mounted under", dir)
+		}
+		fmt.Println("The bay can wipe again.  The wall's confirm checks for mounts when it starts.")
+		return
+	}
+	cfg, err := config.LoadBay(config.BayPath(name))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join("/var/lib/zawiper", name, "job.json")); err == nil {
+		var jf model.JobFile
+		if json.Unmarshal(b, &jf) == nil && jf.State == model.Running {
+			log.Fatalf("bay %s is wiping.  Nothing to browse.", name)
+		}
+	}
+	sys, err := bay.NewSys(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	lines, err := sys.Browse(context.Background(), dir)
+	for _, l := range lines {
+		fmt.Println(" ", l)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	host, _ := os.Hostname()
+	fmt.Printf("\nRead-only, noexec, nosuid, nodev.  From elsewhere: sftp://root@%s%s\n", strings.ToLower(host), dir)
+	fmt.Printf("The bay won't wipe while these are mounted.  When you're done:  bayd browse -u %s\n", name)
 }
