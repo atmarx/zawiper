@@ -1,6 +1,6 @@
 # Za Wiper — drive bays that read, wipe, prove, and sometimes fill with an Ark
 
-Spec v0.3.1, 2026-10-24.  Zim, for The Ark.  Idea and name: xram.
+Spec v0.3.2, 2026-10-26.  Zim, for The Ark.  Idea and name: xram.
 
 v0.1 was written 2026-10-09 in the homelab repo (`docs/specs/za-wiper.md` at `d73b3bc`).  v0.2 moved it home and folded in xram's calls of 2026-10-23 and Val's Phase 0 hardware facts.  v0.3 adds the calls of 2026-10-24:
 - many bays on many hosts behind one hub
@@ -34,7 +34,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 ### Non-goals
 
 - Access from the internet, or any kind of public lookup.
-- A file browser.  The disk side has no network and the hub has no device, so drive contents never cross the link.  Records never hold what was on a drive either.  If you want something off a drive, eject it and mount it on a workstation read-only.  The inspect page shows the partitions, labels and used space, and a wipe needs the serial typed in, so you get a last look before anything is erased (xram, 2026-10-25).
+- A file browser on the page.  The disk side has no network and the hub has no device, so drive contents never cross the link.  Records never hold what was on a drive either.  The inspect page shows the partitions, labels and used space, and a wipe needs the serial typed in, so you get a last look before anything is erased (xram, 2026-10-25).  For more than a look, either eject the drive and mount it read-only on a workstation, or run `bayd browse <bay>` at a root shell on the dock host: it mounts each filesystem read-only, `noexec,nosuid,nodev`, with no journal replay, for SFTP from another machine.  That path runs over SSH to the dock host, never through the hub (`8792576`; `zawiper/README.md`).
 - Being someone else's audit.  But the target is to **satisfy NIST SP 800-88 Rev. 2** (xram, 2026-10-24).  Rev. 2 replaced Rev. 1 in September 2025.  Apart from crypto erase, it no longer lists techniques itself; it defers to IEEE 2883-2022.  So, for each media type:
   - **Purge where the drive allows it.**  That means the drive's own sanitize command (overwrite, block erase, or crypto erase), from IEEE 2883's table for that interface.
   - **Clear otherwise.**  That's our keystream overwrite with full read-back.  It can't reach sectors the drive has remapped.
@@ -65,7 +65,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 
 ## 3. Hardware: the facts (Val, Phase 0)
 
-- **The passthrough is live.**  dev-host → `dock-host` (VMID 102), `usb0: host=4-2`, attached by port.
+- **The dock is on bare metal since 2026-10-25:** `dock-host-2`, port `2-1`, bays `bay1` and `bay2`.  The Phase 0 passthrough (dev-host → `dock-host`, VMID 102, `usb0: host=4-2`, by port) is retired, for the reason below.
 - **USB passthrough can't take a swap (2026-10-25).**  The dock re-enumerates on every insert and pull.  The first time it did, QEMU's libusb host passthrough hit `usb_host_ep_update: Assertion 'alt < …num_altsetting' failed` and the VM died with it.  On the reboot the guest named the port `5-1`, not `10-1`.  A dock behind a VM needs a whole USB controller passed through (PCIe), so the guest kernel sees the hotplug; or the dock goes on bare metal.
 - **One USB device, two slots** (ASMedia ASM1156-PM bridge).  A swap in either slot resets both.  Nothing the host sees names a physical slot.  **One drive per bay:** `bayd` refuses to act if it sees more than one LUN.  `usb_lun` makes each slot its own bay (§8).
 - **Slot 0 once reported a placeholder size** (4.14 GB for two different drives).  Refuse a drive whose block size doesn't match what SMART reports, or whose SMART can't be read.
@@ -106,7 +106,7 @@ The visible part is one confirm.  The real guards are the ones that never show u
 - **Browser:** each mutating call needs a matching `Host` and `Origin`, `Content-Type: application/json` (which forces a CORS preflight the server refuses), and an `X-Za-Wiper: 1` header.  A malicious page open in a LAN browser can't start a wipe (*v0.1 §4.5*).
 - **One job at a time.**
 - **One shared view.**  The page draws only what `bayd` reports.  There's no per-visitor state, no "your job", and no control that exists for one viewer and not another.  Ten people watching see the same frame.  The confirm dialog belongs to whoever is about to start a run.  Once they press it, the run belongs to the bay.
-- **Nothing on the page stops a run.**  `bayd` stops a job only on its own evidence (§4.1: identity changed, write error, mismatch).  The only other stop is a person with root on `dock-host`, at a shell: `systemctl stop bayd`.  The job then comes back **INTERRUPTED**, like a power cut.
+- **Nothing on the page stops a run.**  `bayd` stops a job only on its own evidence (§4.1: identity changed, write error, mismatch).  The only other stop is a person with root on the dock host, at a shell: `systemctl stop bayd@<bay>`.  The job then comes back **INTERRUPTED**, like a power cut.
 
 ## 5. States
 
@@ -309,7 +309,7 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
 | Phase | Deliverable | Needs |
 |---|---|---|
 | **1 — Read-only bay** | `bayd` read path, `zaweb` drive card, Re-read, inspect records, serial list, record page with print.  Nothing can write. | Val: port, Caddy route, DNS |
-| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS, one `bayd` per bay.  The kernel enforces each bay's scope.  Records move to the hub.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  **Built 2026-10-25** and run end to end on a file: hub, link and `bayd` over mTLS, wipe, record to the hub, signed on arrival, checked by `zverify` and `ssh-keygen -Y verify`.  Still to prove on hardware: the units and the device filter on dock-host, then a real drive.  Still to measure: ATA erase through the bridge. | Val: the CA and certs, the Caddy route to `zaweb:8460`, `/opt/zawiper/tls` |
+| **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS, one `bayd` per bay.  The kernel enforces each bay's scope.  Records move to the hub.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  **Built 2026-10-25** and run end to end on a file: hub, link and `bayd` over mTLS, wipe, record to the hub, signed on arrival, checked by `zverify` and `ssh-keygen -Y verify`.  **First hardware wipe 2026-10-26:** Z1N4BVB3 (Constellation ES, 1 TB) on `dock-host-2/bay1`, unattended, under `bayd@bay1` and its device filter.  Clear per IEEE 2883 §8.4.2.2 with full verification, every byte read back, PASS WITH NOTES (one reallocated sector, before and after).  Its signature checks out with `ssh-keygen -Y verify` against `/za-wiper.pub`.  ATA Enhanced Security Erase through the bridge was measured by hand on 2026-10-25 (§11).  Still to prove: the negative case, that `bayd@bay1` can't open the drive in `bay2`. | Val: the CA and certs, the Caddy route to `zaweb:8460`, `/opt/zawiper/tls` |
 | **3 — Wipe + Load** | The hub serves staging; `bayd` pulls with range requests.  Format, load, verify against Kiwix's hashes, ballast, reserve, on-drive records. | Staging mount on the hub |
 | **4 — Polish** | ntfy, metrics, a backup-drive profile, a destruction note on a record. | |
 
