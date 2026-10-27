@@ -309,9 +309,11 @@ func TestBayStates(t *testing.T) {
 	// RUNNING: the warning and DEFRAG, and no buttons at all.
 	set(model.Snapshot{State: model.Running, Session: session, Drive: drv, Job: &model.Job{
 		Kind: "wipe", Phase: "write", Serial: drv.Serial(), Started: t0, Map: "wwW.....", Done: 3 << 30, Total: 8 << 30,
-		MBps: 151.4, ETA: 3725, TempC: 41}})
+		MBps: 151.4, ETA: 3725, TempC: 41, CPU: 21.4, HostCPU: 9.6, Cores: 8, Load: 1.25}})
 	body = get(h, page).Body.String()
-	wants(t, "running", body, "Do not pull the drive.", `class="dos"`, "Writing the keystream", "Block 3 of 8",
+	wants(t, "running", body, "Do not pull the drive.", "Once started, this process cannot be stopped from here.",
+		"21% of a core", "10% of 8 cores · load 1.25", `data-field="band"`, `data-field="guess"`,
+		`class="dos"`, "Writing the keystream", "Block 3 of 8",
 		"151 MB/s", "1:02:05", "41 °C", "18.7%", `data-field="map"`,
 		`<span class="c-written">■■</span><span class="c-cur">W</span><span class="c-todo">░░░░░</span>`)
 	if strings.Contains(body, "<button") {
@@ -837,8 +839,57 @@ func TestGroupAndGB(t *testing.T) {
 	if gb(556_410_000_000) != "556.41 GB" || gb(1_000_204_886_016) != "1.000 TB" {
 		t.Errorf("%s %s", gb(556_410_000_000), gb(1_000_204_886_016))
 	}
-	l := LiveOf(&model.Job{Map: strings.Repeat("v", 4000), Total: 4000 * gib, Done: 4000 * gib}, time.Now())
+	l := LiveOf(&model.Job{Map: strings.Repeat("v", 4000), Total: 4000 * gib, Done: 4000 * gib}, nil, time.Now())
 	if len(l.Map) != 1334 || l.Scale != "1 block = 3 GiB" || l.Written != "4.295 TB" || l.Checked != "0.00 GB" {
 		t.Errorf("4 TB live: %d cells, %q, %q, %q", len(l.Map), l.Scale, l.Written, l.Checked)
+	}
+}
+
+func TestBand(t *testing.T) {
+	usb3 := &model.Drive{Bridge: model.Bridge{Speed: 5000},
+		SMART: &smart.Info{RotationRate: 7200, Link: "3.0 Gb/s", LinkBps: 3_000_000_000}}
+	scale, guess, limit := Band(&model.Job{MBps: 69, WriteMBps: []uint16{129, 110, 69}}, usb3)
+	lines := strings.Split(scale, "\n")
+	if len(lines) != 2 || lines[0] != " slow 5400 7200 10k  15k  SSD  NVMe fast" {
+		t.Fatalf("scale %q", scale)
+	}
+	rule := []rune(lines[1])
+	if len(rule) != 40 || rule[bandCol(69)] != '▲' || bandCol(69) < 5 || bandCol(69) >= 10 {
+		t.Errorf("69 MB/s isn't marked in the 5400 band: %q", lines[1])
+	}
+	// SATA 3.0 Gb/s (about 276 MB/s) is slower than USB 3, so it's the wall.
+	if w := bandCol(276); rule[w] != '┤' || rule[w+1] != '░' || rule[w-1] != '─' {
+		t.Errorf("no wall at 276 MB/s: %q", lines[1])
+	}
+	if guess != "Best guess: a 7,200 rpm disk, from a peak of 129 MB/s.  SMART says 7,200 rpm." {
+		t.Errorf("guess %q", guess)
+	}
+	if !strings.HasPrefix(limit, "Link: SATA 3.0 Gb/s, about 276 MB/s · USB 3 (5 Gb/s), about 450 MB/s.") {
+		t.Errorf("limit %q", limit)
+	}
+
+	// USB 2 caps a drive below what it can do: no guess, and say why.
+	usb2 := &model.Drive{Bridge: model.Bridge{Speed: 480}, SMART: &smart.Info{}}
+	if _, g, _ := Band(&model.Job{MBps: 38, WriteMBps: []uint16{38}}, usb2); !strings.Contains(g, "can't tell") || !strings.Contains(g, "USB 2") || !strings.Contains(g, "solid state") {
+		t.Errorf("USB 2 guess %q", g)
+	}
+	// Nothing measured and no links: a plain scale, with no mark.
+	scale, g, l := Band(&model.Job{}, nil)
+	if strings.ContainsAny(scale, "▲┤░") || !strings.Contains(g, "first block") || !strings.Contains(l, "not reported") {
+		t.Errorf("empty: %q %q %q", scale, g, l)
+	}
+	for _, c := range []float64{0.5, 59, 60, 119, 120, 329, 330, 699, 700, 7499, 7500, 50000} {
+		if col := bandCol(c); col/slot != bandOf(c) {
+			t.Errorf("%v MB/s at column %d, outside band %d", c, col, bandOf(c))
+		}
+	}
+}
+
+func TestSigIgnoresCPU(t *testing.T) {
+	b := hub.Bay{Snap: model.Snapshot{State: model.Running, Job: &model.Job{CPU: 20, HostCPU: 5, Cores: 4, Load: 1}}}
+	before := Sig(b)
+	b.Snap.Job = &model.Job{CPU: 31, HostCPU: 9, Cores: 4, Load: 2}
+	if Sig(b) != before {
+		t.Error("a CPU sample redraws the page")
 	}
 }

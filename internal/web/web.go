@@ -346,7 +346,7 @@ func viewOf(b hub.Bay, now time.Time) bayView {
 	v.Path = "/bays/" + url.PathEscape(b.Host) + "/" + url.PathEscape(b.Name)
 	v.API = "/api" + v.Path
 	if j := b.Snap.Job; j != nil {
-		v.Live = LiveOf(j, now)
+		v.Live = LiveOf(j, b.Snap.Drive, now)
 		// Once it's over, the bottom line says how it ended, not what it was doing.
 		switch v.State {
 		case model.Done:

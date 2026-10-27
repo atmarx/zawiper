@@ -123,7 +123,7 @@ EMPTY ─insert─► READING ─► PRESENT ─confirm─► RUNNING ─► DON
 | `EMPTY` | "Nothing in the bay." Search box, last few drives. |
 | `READING` | The command being run right now. |
 | `PRESENT` | Drive card, Re-read, Wipe, Wipe + Load. |
-| `RUNNING` | **Do not pull the drive.**  The surface map (§6.5), phase, MB/s, ETA, temperature, errors.  No buttons. |
+| `RUNNING` | **Do not pull the drive.**  "Once started, this process cannot be stopped from here."  The surface map (§6.5), phase, MB/s, ETA, temperature, errors, bayd's CPU and the host's.  A speed scale (slow, 5400, 7200, 10k, 15k, SSD, NVMe, fast) marks the current rate, shades what the slower of the USB and SATA links can't reach, and guesses the drive's kind from its peak, beside what SMART claims (xram, 2026-10-27).  No buttons. |
 | `DONE` | Grade, headline numbers, link to the record, Eject. |
 | `FAILED` | The evidence first: phase, offset, what the drive said. |
 | `INTERRUPTED` | "The power went out mid-wipe.  I don't know what state this drive is in, and I won't pretend I do."  Stays until acknowledged, then logs an incomplete job. |

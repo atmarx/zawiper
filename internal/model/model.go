@@ -60,6 +60,14 @@ type Job struct {
 	WriteMBps []uint16 `json:"write_mbps,omitempty"`
 	ReadMBps  []uint16 `json:"read_mbps,omitempty"`
 
+	// What the job costs the dock host, sampled every poll: bayd's own CPU
+	// as a percentage of one core (top's way), the whole host's as a
+	// percentage of all its cores, and the one-minute load average.
+	CPU     float64 `json:"cpu,omitempty"`
+	HostCPU float64 `json:"host_cpu,omitempty"`
+	Cores   int     `json:"cores,omitempty"`
+	Load    float64 `json:"load,omitempty"`
+
 	// Evidence is what ended a FAILED or ALARM job: phase, offset, and what
 	// the drive said.
 	Evidence string `json:"evidence,omitempty"`
@@ -82,6 +90,9 @@ type Bridge struct {
 	Manufacturer string `json:"manufacturer,omitempty"`
 	Product      string `json:"product,omitempty"`
 	Serial       string `json:"serial,omitempty"`
+	// Speed is the USB link as negotiated, in Mb/s: 480 for USB 2, 5000
+	// for USB 3's first speed.  Zero when it isn't USB or wasn't read.
+	Speed int `json:"speed_mbps,omitempty"`
 }
 
 // Part is a partition, or the whole disk when a filesystem sits on it bare.

@@ -50,6 +50,7 @@ type Bay struct {
 	dev  Device // the device the snapshot describes
 	job  *job   // the running job, or nil
 	hook func(pass string, i int)
+	cpu  cpuMeter // only the poll touches it
 }
 
 func (b *Bay) init() {
@@ -115,6 +116,19 @@ func (b *Bay) Run(ctx context.Context) {
 	}
 }
 
+// meter puts what the running job costs the host into the live job.
+func (b *Bay) meter() {
+	l, ok := b.cpu.sample(time.Now())
+	if !ok {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if j := b.snap.Job; j != nil && b.job != nil {
+		j.CPU, j.HostCPU, j.Cores, j.Load = l.Self, l.Host, l.Cores, l.Load
+	}
+}
+
 // Poll reads the bay if what's on the port changed, or if forced.  While a
 // job runs it only watches the port: it never re-reads or sets the drive
 // read-only under a wipe.  A finished job holds the bay until Ack.
@@ -127,6 +141,7 @@ func (b *Bay) Poll(ctx context.Context, force bool) {
 		if err == nil {
 			b.watch(j, devs)
 		}
+		b.meter()
 		return
 	}
 	if held(b.snap.State) {

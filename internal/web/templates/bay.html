@@ -31,7 +31,7 @@
 {{else if eq .State "RUNNING"}}
   <div class="pull" role="alert">
     <strong>Do not pull the drive.</strong>
-    <span>The wipe runs to the end on its own.  Nothing on this page can stop it, and nothing needs to.</span>
+    <span>Once started, this process cannot be stopped from here.</span>
   </div>
   {{template "defrag" .}}
 
@@ -218,6 +218,8 @@
         <dt>Rate</dt><dd data-field="rate">{{.Rate}}</dd>
         <dt>Temp</dt><dd data-field="temp">{{.Temp}}</dd>
         <dt>Errors</dt><dd data-field="errors">{{.Errors}}</dd>
+        <dt>bayd CPU</dt><dd data-field="cpu">{{.CPU}}</dd>
+        <dt>Host</dt><dd data-field="host">{{.Host}}</dd>
       </dl>
       <p class="dos-center"><span data-field="pct">{{.Pct}}</span> complete</p>
       <p class="dos-center dos-progress" data-field="bar" aria-hidden="true">{{.Bar}}</p>
@@ -242,6 +244,12 @@
         <pre class="dos-plot" data-field="trace" data-trace aria-hidden="true">{{trace .Trace}}</pre>
       </div>
       <p class="dos-center dos-note">MB/s · outer edge → inner · <span class="t-w">■</span> write <span class="t-r">■</span> read-back</p>
+    </section>
+    <section class="dos-box dos-wide">
+      <h3>What it runs like</h3>
+      <div class="dos-trace"><pre class="dos-band" data-field="band" aria-hidden="true">{{.Band}}</pre></div>
+      <p data-field="guess">{{.Guess}}</p>
+      <p class="dos-limit" data-field="limit">{{.Limit}}</p>
     </section>
   </div>
   <div class="dos-foot"><span data-field="phase">{{.Phase}}</span></div>

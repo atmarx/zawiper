@@ -378,6 +378,8 @@ html { overflow-x: clip; }
 .t-w { color: var(--cga-lcyan); }
 .t-r { color: var(--cga-white); }
 .dos-note .t-w, .dos-note .t-r { background: var(--cga-blue); }
+.dos-band { background: var(--cga-blue); color: var(--cga-white); padding: 0 1ch; max-width: 100%; overflow-x: auto; }
+.dos-box .dos-limit { margin-top: 4px; }
 
 /* The mini map on a tile: the same cells, shrunk to 64. */
 .mini {

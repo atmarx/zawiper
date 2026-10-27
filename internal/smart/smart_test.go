@@ -37,6 +37,22 @@ func TestParseRealDrive(t *testing.T) {
 	if a, ok := i.Attr(190); !ok || a.WhenFailed != "past" {
 		t.Errorf("attr 190: %+v", a)
 	}
+	// SATA 2.6 reports only its maximum link speed.
+	if i.Link != "3.0 Gb/s" || i.LinkBps != 3_000_000_000 {
+		t.Errorf("link %q %d", i.Link, i.LinkBps)
+	}
+}
+
+func TestParseCurrentLink(t *testing.T) {
+	i, err := Parse([]byte(`{"serial_number":"X1","interface_speed":{
+		"max":{"string":"6.0 Gb/s","units_per_second":60,"bits_per_unit":100000000},
+		"current":{"string":"3.0 Gb/s","units_per_second":30,"bits_per_unit":100000000}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i.Link != "3.0 Gb/s" || i.LinkBps != 3_000_000_000 {
+		t.Errorf("the current link should win: %q %d", i.Link, i.LinkBps)
+	}
 }
 
 func TestAssessRealDrive(t *testing.T) {

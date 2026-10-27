@@ -208,6 +208,7 @@ func (s *Sys) Bridge(d Device) model.Bridge {
 			Manufacturer: readStr(filepath.Join(u, "manufacturer")),
 			Product:      readStr(filepath.Join(u, "product")),
 			Serial:       readStr(filepath.Join(u, "serial")),
+			Speed:        usbSpeed(readStr(filepath.Join(u, "speed"))),
 		}
 	}
 	// SAS: the bridge is the HBA, the last PCI function above the disk.
@@ -219,6 +220,16 @@ func (s *Sys) Bridge(d Device) model.Bridge {
 		}
 	}
 	return model.Bridge{}
+}
+
+// usbSpeed reads sysfs's speed, in Mb/s: "480", "5000", or "1.5" for low
+// speed, which rounds to 1.
+func usbSpeed(s string) int {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
+		return 0
+	}
+	return max(1, int(f))
 }
 
 var pciAddrRE = regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$`)

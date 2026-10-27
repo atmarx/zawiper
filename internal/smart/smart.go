@@ -40,7 +40,11 @@ type Info struct {
 	CapacityBytes int64  `json:"capacity_bytes"`
 	Protocol      string `json:"protocol,omitempty"` // ATA, SCSI or NVMe, as smartctl talked to it
 	RotationRate  int    `json:"rotation_rate"`      // 0 is solid state
-	Passed        *bool  `json:"passed"`             // nil when the drive didn't say
+	// Link is the SATA link the drive reports, the current speed if it
+	// says and its maximum if not: "3.0 Gb/s", and LinkBps in bits a second.
+	Link          string `json:"link,omitempty"`
+	LinkBps       int64  `json:"link_bps,omitempty"`
+	Passed        *bool  `json:"passed"` // nil when the drive didn't say
 	PowerOnHours  int    `json:"power_on_hours"`
 	PowerCycles   int    `json:"power_cycles"`
 	TempC         int    `json:"temp_c"`
@@ -71,8 +75,12 @@ type rawJSON struct {
 	UserCapacity    struct {
 		Bytes int64 `json:"bytes"`
 	} `json:"user_capacity"`
-	RotationRate *int `json:"rotation_rate"`
-	SmartStatus  *struct {
+	RotationRate   *int `json:"rotation_rate"`
+	InterfaceSpeed struct {
+		Max     *linkSpeed `json:"max"`
+		Current *linkSpeed `json:"current"`
+	} `json:"interface_speed"`
+	SmartStatus *struct {
 		Passed bool `json:"passed"`
 	} `json:"smart_status"`
 	PowerOnTime struct {
@@ -101,6 +109,12 @@ type rawJSON struct {
 			Count int `json:"count"`
 		} `json:"summary"`
 	} `json:"ata_smart_error_log"`
+}
+
+type linkSpeed struct {
+	String         string `json:"string"`
+	UnitsPerSecond int64  `json:"units_per_second"`
+	BitsPerUnit    int64  `json:"bits_per_unit"`
 }
 
 // Parse reads `smartctl -j` output.  It fails when smartctl couldn't reach
@@ -138,6 +152,12 @@ func Parse(b []byte) (*Info, error) {
 	}
 	if r.RotationRate != nil {
 		i.RotationRate = *r.RotationRate
+	}
+	for _, l := range []*linkSpeed{r.InterfaceSpeed.Current, r.InterfaceSpeed.Max} {
+		if l != nil && l.UnitsPerSecond > 0 {
+			i.Link, i.LinkBps = l.String, l.UnitsPerSecond*l.BitsPerUnit
+			break
+		}
 	}
 	if r.SmartStatus != nil {
 		p := r.SmartStatus.Passed

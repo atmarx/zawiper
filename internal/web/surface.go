@@ -145,6 +145,13 @@ type Live struct {
 	// labels beside it, a line per row.
 	Trace string `json:"trace"`
 	Axis  string `json:"axis"`
+	// Band is the speed scale and its mark, Guess and Limit the words under
+	// it (band.go).  CPU is bayd's own, Host the dock host's.
+	Band  string `json:"band"`
+	Guess string `json:"guess"`
+	Limit string `json:"limit"`
+	CPU   string `json:"cpu"`
+	Host  string `json:"host"`
 
 	// Headline numbers, for a job that's over.
 	Took     string `json:"-"`
@@ -163,13 +170,23 @@ const (
 	traceCols = 32
 )
 
-func LiveOf(j *model.Job, now time.Time) *Live {
+// LiveOf words a job.  d is the drive it runs on, for the links that cap
+// its rate; nil leaves the ceiling off the scale.
+func LiveOf(j *model.Job, d *model.Drive, now time.Time) *Live {
 	per := (len(j.Map) + mapCells - 1) / mapCells
 	l := &Live{Map: Group(j.Map, per), Mini: Mini(j.Map, miniCells), Phase: PhaseWords(j.Phase),
 		Scale: fmt.Sprintf("1 block = %d GiB", max(1, per))}
 	l.Written = gb(min(j.Done, j.Total))
 	l.Checked = gb(max(0, j.Done-j.Total))
 	l.Trace, l.Axis = trace(j.WriteMBps, j.ReadMBps, traceCols)
+	l.Band, l.Guess, l.Limit = Band(j, d)
+	l.CPU, l.Host = "—", "—"
+	if j.CPU > 0 {
+		l.CPU = fmt.Sprintf("%.0f%% of a core", j.CPU)
+	}
+	if j.Cores > 0 {
+		l.Host = fmt.Sprintf("%.0f%% of %d cores · load %.2f", j.HostCPU, j.Cores, j.Load)
+	}
 
 	frac := 0.0
 	if j.Total > 0 {
@@ -367,6 +384,7 @@ func Sig(b hub.Bay) string {
 	if s.Job != nil {
 		j := *s.Job
 		j.Phase, j.Map, j.Done, j.MBps, j.ETA, j.TempC, j.Bad = "", "", 0, 0, 0, 0, 0
+		j.CPU, j.HostCPU, j.Cores, j.Load = 0, 0, 0, 0
 		j.WriteMBps, j.ReadMBps = nil, nil
 		job = &j
 	}

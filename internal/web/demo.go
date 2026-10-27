@@ -89,8 +89,9 @@ func demoDrive(mdl, family, serial string, size int64, rpm, hours, temp int, h s
 	passed := true
 	return &model.Drive{
 		Dev: "/dev/zawiper/demo", Size: size, LogicalSector: 512, PhysicalSector: 4096,
-		Bridge: model.Bridge{VendorID: "174c", ProductID: "55aa", Manufacturer: "ASMedia", Product: "ASM1153E"},
+		Bridge: model.Bridge{VendorID: "174c", ProductID: "55aa", Manufacturer: "ASMedia", Product: "ASM1153E", Speed: 5000},
 		SMART: &smart.Info{Model: mdl, Family: family, Serial: serial, CapacityBytes: size, RotationRate: rpm,
+			Link: "6.0 Gb/s", LinkBps: 6_000_000_000,
 			Passed: &passed, PowerOnHours: hours, PowerCycles: hours / 37, TempC: temp},
 		Health: h, Table: t,
 	}
@@ -156,6 +157,9 @@ func advance(j *model.Job, n float64) {
 	}
 	j.MBps = float64(speed(cur, j.Phase == "verify"))
 	j.TempC = 40 + int(4*float64(j.Done)/float64(2*j.Total))
+	// About what one bayd costs on dock-host-2: a fifth of a core for AES-CTR.
+	j.CPU, j.HostCPU, j.Cores = 19+2*math.Sin(float64(cur)), 6+math.Sin(float64(cur)*0.3), 8
+	j.Load = 0.9 + 0.2*math.Sin(float64(cur)*0.1)
 	if j.MBps > 0 {
 		j.ETA = int64(float64(2*j.Total-j.Done) / (j.MBps * 1e6))
 	}

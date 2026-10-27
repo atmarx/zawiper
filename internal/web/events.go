@@ -39,7 +39,7 @@ func buildFrame(f hub.Fleet) []byte {
 	for _, b := range f.Bays() {
 		fb := frameBay{Key: b.Key, State: stateOf(b), Sig: Sig(b)}
 		if fb.State == model.Running && b.Snap.Job != nil {
-			fb.Live = LiveOf(b.Snap.Job, now)
+			fb.Live = LiveOf(b.Snap.Job, b.Snap.Drive, now)
 		}
 		fr.Bays = append(fr.Bays, fb)
 	}
