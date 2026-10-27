@@ -115,6 +115,14 @@ func TestLoadBays(t *testing.T) {
 	if err != nil || len(bays) != 3 || bays[2].Selector() != "usb_port 10-1 lun 1" {
 		t.Fatalf("one bay per slot: %v %+v", err, bays)
 	}
+	a, _ := LoadBay(filepath.Join(dir, "a.toml"))
+	b, _ := LoadBay(filepath.Join(dir, "b.toml"))
+	if got := Siblings(dir, a); len(got) != 1 || got[0] != "c" {
+		t.Errorf("a's siblings: %v", got)
+	}
+	if got := Siblings(dir, b); got != nil {
+		t.Errorf("a SAS bay has no siblings: %v", got)
+	}
 	for _, c := range []string{"name = \"d\"\nusb_port = \"10-1\"\n", "name = \"d\"\nusb_port = \"10-1\"\nusb_lun = \"1\"\n"} {
 		write("d.toml", c)
 		if _, err := LoadBays(dir); err == nil || !strings.Contains(err.Error(), "One device, one bay") {

@@ -38,6 +38,9 @@ type Bay struct {
 	// Direct opens the drive with O_DIRECT.  Off only in dev mode and
 	// tests, where the drive is a file.
 	Direct bool
+	// Shares names the other bays behind the same bridge, for the refusal
+	// of a drive that could stall them.
+	Shares []string
 	// Block, Buf and CheckEvery shrink a wipe for dev mode and tests.
 	Block, Buf, CheckEvery int64
 
@@ -174,7 +177,11 @@ func (b *Bay) Poll(ctx context.Context, force bool) {
 	b.set(model.Snapshot{State: model.Reading, Session: session, Message: "Reading identity, SMART, and what's on it."})
 	b.mu.Unlock()
 
-	s := Read(ctx, b.Src, devs)
+	s := Read(ctx, b.Src, devs, ReadOpts{Shares: b.Shares, Step: func(m string) {
+		b.mu.Lock()
+		b.set(model.Snapshot{State: model.Reading, Session: session, Message: m})
+		b.mu.Unlock()
+	}})
 	s.Session = session
 	if s.State == model.Present && s.Drive.Serial() != "" && b.OnRead != nil {
 		id, err := b.OnRead(&s)
@@ -194,6 +201,11 @@ func (b *Bay) Poll(ctx context.Context, force bool) {
 func (b *Bay) set(s model.Snapshot) {
 	s.Bay, s.Host = b.Name, b.Host
 	b.snap = s
+	if s.State == model.Reading {
+		// Each step of a read, so the journal shows which one hung.
+		log.Printf("bay: %s %s", s.State, s.Message)
+		return
+	}
 	log.Printf("bay: %s %s %s", s.State, s.Drive.Serial(), strings.Join(s.Refusals, " | "))
 }
 

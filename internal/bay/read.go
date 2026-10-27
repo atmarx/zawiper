@@ -69,8 +69,25 @@ func bounds(src Source) (int64, int64) {
 	return MinSize, MaxSize
 }
 
+// ReadOpts is what a read is told beyond the drive.
+type ReadOpts struct {
+	// Step says what the read is doing now, for the wall.  A drive that has
+	// stopped answering shows up as one step that doesn't end.
+	Step func(string)
+	// Shares names the other bays behind the same bridge.  A drive that
+	// doesn't answer stalls them too: the kernel's error handling stops the
+	// whole SCSI host while it recovers.
+	Shares []string
+}
+
+func (o ReadOpts) step(what string) {
+	if o.Step != nil {
+		o.Step(fmt.Sprintf("%s, since %s.", what, time.Now().Format("15:04:05")))
+	}
+}
+
 // Read looks at whatever is on the port.  It writes nothing to the drive.
-func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
+func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snapshot {
 	s := model.Snapshot{State: model.Present, ReadAt: time.Now().UTC()}
 	refuse := func(f string, a ...any) { s.Refusals = append(s.Refusals, fmt.Sprintf(f, a...)) }
 
@@ -101,39 +118,61 @@ func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
 		return s
 	}
 
+	o.step("Setting it read-only")
 	if err := src.SetRO(d); err != nil {
 		refuse("Couldn't set %s read-only (%v), so I won't mount anything on it to look inside.", d.Path, err)
 	} else {
 		drv.ReadOnly = true
 	}
 
+	// A drive that doesn't answer SMART, or can't agree on its own size,
+	// gets no further reads.  It can't be filed or wiped anyway, and every
+	// command it lets time out stalls the bridge.
+	balky := false
+	o.step("Asking SMART (smartctl)")
+	asked := time.Now()
 	js, text, err := src.SMART(ctx, d)
+	took := time.Since(asked).Round(time.Second)
 	s.SmartJSON, s.SmartText = js, text
 	info, perr := smart.Parse(js)
 	switch {
 	case err != nil:
-		refuse("SMART can't be read through this bridge (%v).  Without the drive's own serial there's nothing to file a record under.", err)
+		refuse("smartctl didn't run (%v).  Without the drive's own serial there's nothing to file a record under.", err)
+		balky = true
 	case perr != nil:
-		refuse("SMART can't be read through this bridge: %v.  Without the drive's own serial there's nothing to file a record under.", perr)
+		refuse("The drive didn't answer SMART: %v, after %s.  A failing drive does this, and so does one that hasn't come up to speed, or a bridge that can't pass SMART through.  Without the drive's own serial there's nothing to file a record under.", perr, took)
+		balky = true
 	default:
 		drv.SMART = info
 		drv.Health = smart.Assess(info)
-		if c, ok := src.(capacity); ok {
-			drv.Capacity = c.Capacity(ctx, d, info.Protocol)
-			if drv.Capacity.Checked() && drv.Capacity.Hidden() > 0 {
-				refuse("The drive keeps %s sectors (%s) from the host behind an HPA or DCO.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p%d` (and `hdparm --dco-restore` for a DCO), power-cycle the drive, and re-read.",
-					records.Commas(drv.Capacity.Hidden()), records.Size(drv.Capacity.Hidden()*512), drv.Capacity.Native)
-			}
-		}
 		if info.CapacityBytes != d.Size {
-			refuse("The bridge says %s but the drive says %s.  The bay's slot 0 has reported placeholder sizes before.  Reseat the drive and re-read.",
+			refuse("The bridge says %s but the drive says %s.  A bridge falls back to a placeholder size when the drive doesn't identify itself properly as it comes up.  Reseat the drive and re-read, and if it holds, try it on another port.",
 				records.Size(d.Size), records.Size(info.CapacityBytes))
+			balky = true
 		}
 	}
 	if lo, hi := bounds(src); d.Size < lo || d.Size > hi {
 		refuse("%s is outside what a real drive in this bay should be (%s to %s).", records.Size(d.Size), binary(lo), binary(hi))
+		balky = true
+	}
+	if balky {
+		if len(o.Shares) > 0 {
+			who := strings.Join(o.Shares, " and ")
+			refuse("This slot shares a bridge with %s.  Take this drive out, or it can stall %s.", who, who)
+		}
+		return s
 	}
 
+	if c, ok := src.(capacity); ok {
+		o.step("Checking for hidden sectors (hdparm)")
+		drv.Capacity = c.Capacity(ctx, d, info.Protocol)
+		if drv.Capacity.Checked() && drv.Capacity.Hidden() > 0 {
+			refuse("The drive keeps %s sectors (%s) from the host behind an HPA or DCO.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p%d` (and `hdparm --dco-restore` for a DCO), power-cycle the drive, and re-read.",
+				records.Commas(drv.Capacity.Hidden()), records.Size(drv.Capacity.Hidden()*512), drv.Capacity.Native)
+		}
+	}
+
+	o.step("Reading the partition table (blkid)")
 	t, err := src.Table(ctx, d)
 	if err != nil {
 		t.Note = fmt.Sprintf("Couldn't read the partition table: %v", err)
@@ -142,6 +181,7 @@ func Read(ctx context.Context, src Source, devs []Device) model.Snapshot {
 		p := &t.Parts[i]
 		p.Used = -1
 		if drv.ReadOnly {
+			o.step("Looking inside " + p.Path + " read-only")
 			src.Peek(ctx, p)
 		} else {
 			p.Peek = "not mounted: the device isn't read-only"

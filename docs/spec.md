@@ -1,6 +1,6 @@
 # Za Wiper — drive bays that read, wipe, prove, and sometimes fill with an Ark
 
-Spec v0.3.2, 2026-10-26.  Zim, for The Ark.  Idea and name: xram.
+Spec v0.3.3, 2026-10-27.  Zim, for The Ark.  Idea and name: xram.
 
 v0.1 was written 2026-10-09 in the homelab repo (`docs/specs/za-wiper.md` at `d73b3bc`).  v0.2 moved it home and folded in xram's calls of 2026-10-23 and Val's Phase 0 hardware facts.  v0.3 adds the calls of 2026-10-24:
 - many bays on many hosts behind one hub
@@ -68,7 +68,8 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 - **The dock is on bare metal since 2026-10-25:** `dock-host-2`, port `2-1`, bays `bay1` and `bay2`.  The Phase 0 passthrough (dev-host → `dock-host`, VMID 102, `usb0: host=4-2`, by port) is retired, for the reason below.
 - **USB passthrough can't take a swap (2026-10-25).**  The dock re-enumerates on every insert and pull.  The first time it did, QEMU's libusb host passthrough hit `usb_host_ep_update: Assertion 'alt < …num_altsetting' failed` and the VM died with it.  On the reboot the guest named the port `5-1`, not `10-1`.  A dock behind a VM needs a whole USB controller passed through (PCIe), so the guest kernel sees the hotplug; or the dock goes on bare metal.
 - **One USB device, two slots** (ASMedia ASM1156-PM bridge).  A swap in either slot resets both.  Nothing the host sees names a physical slot.  **One drive per bay:** `bayd` refuses to act if it sees more than one LUN.  `usb_lun` makes each slot its own bay (§8).
-- **Slot 0 once reported a placeholder size** (4.14 GB for two different drives).  Refuse a drive whose block size doesn't match what SMART reports, or whose SMART can't be read.
+- **Both slots have reported a placeholder size**: 4.14 GB, for a drive that didn't identify itself properly as it came up.  Refuse a drive whose block size doesn't match what SMART reports, or whose SMART can't be read.
+- **The two slots are one failure domain** (2026-10-27).  To the kernel the dock is one SCSI host with two LUNs, and its error handling stops the whole host while it recovers from one LUN's timeout.  A drive that doesn't answer in one slot stalls the other: a ST4000NM0033 that came up as 4.14 GB held bay1's wipe to 70 MB/s and falling, and it ran at 165 MB/s once that drive was out.  A dying ST3000DM001 (Z1F5K2CR) hung long enough to reset the bridge, and took the healthy drive in the other slot down with it.  So a drive that's refused for not answering comes out before the other slot starts a wipe, and the refusal says so.  A suspect drive goes in alone.
 - **`smartctl -d sat` works from inside the VM.**
 - **Key everything on the SMART serial.**  The kernel's serial was all zeros with two drives in the enclosure.
 - **ATA Security Erase gets through this bridge** (§11).  Still unmeasured: sustained write and verify throughput, and a udev rule that authorizes storage interfaces only on that port.
@@ -96,7 +97,7 @@ The visible part is one confirm.  The real guards are the ones that never show u
 
 - **"Found on it" comes from a read-only peek.**  It lists the signature scan, then mounts each recognized filesystem `ro,noexec,nosuid,nodev` (plus `noload` for ext4) in a throwaway mount namespace, measures used space, and unmounts.
 - **"Nothing found" is said plainly:** "No partition table, no filesystems.  Looks blank already."
-- **Backup drives get flagged.**  A label starting with `backup-`, a restic repository, or a PBS datastore turns the card amber, and the confirm button reads **Erase this backup drive**.  The rotation drives use the same caddies, so this costs nothing and catches the 2 a.m. mistake.
+- **Backup drives get flagged.**  A label starting with `backup-`, a restic repository, or a PBS datastore turns the card amber, and the confirm button reads **Erase this backup drive**.  md, LVM and ZFS members get the same flag, since they could be holding anything.  The bays' udev rules blank `ID_FS_TYPE` on bay devices, so a dock host with mdadm or LVM installed never assembles a bay drive's array: it stays a drive to wipe (xram, 2026-10-27).  The rotation drives use the same caddies, so this costs nothing and catches the 2 a.m. mistake.
 - **The confirm resets if the drive's facts change** while it's on screen.
 
 ### 4.3 The page itself
@@ -121,7 +122,7 @@ EMPTY ─insert─► READING ─► PRESENT ─confirm─► RUNNING ─► DON
 | State | The page says |
 |---|---|
 | `EMPTY` | "Nothing in the bay." Search box, last few drives. |
-| `READING` | The command being run right now. |
+| `READING` | The step it's on and when that started ("Asking SMART (smartctl), since 09:34:35."), so a hung drive shows up as a step that doesn't end.  A drive that doesn't answer SMART, or disagrees with the bridge about its size, gets no further reads: it can't be filed or wiped, and every command it times out stalls the bridge. |
 | `PRESENT` | Drive card, Re-read, Wipe, Wipe + Load. |
 | `RUNNING` | **Do not pull the drive.**  "Once started, this process cannot be stopped from here."  The surface map (§6.5), phase, MB/s, ETA, temperature, errors, bayd's CPU and the host's.  A speed scale (slow, 5400, 7200, 10k, 15k, SSD, NVMe, fast) marks the current rate, shades what the slower of the USB and SATA links can't reach, and guesses the drive's kind from its peak, beside what SMART claims (xram, 2026-10-27).  No buttons. |
 | `DONE` | Grade, headline numbers, link to the record, Eject. |

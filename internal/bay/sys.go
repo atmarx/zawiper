@@ -20,6 +20,7 @@ import (
 	"zawiper/internal/config"
 	"zawiper/internal/model"
 	"zawiper/internal/records"
+	"zawiper/internal/smart"
 )
 
 // Sys is the real Source: sysfs, blkid, smartctl, blockdev, mount.
@@ -335,9 +336,14 @@ func (s *Sys) SMART(ctx context.Context, d Device) ([]byte, []byte, error) {
 	// smartctl's exit status is a bitmask of findings, so a non-zero exit is
 	// normal.  smart.Parse reads the bits from the JSON; here only a failure
 	// to run at all counts.
-	js, _, err := runAnyExit(ctx, "smartctl", "-d", typ, "-a", "-j", d.Path)
+	js, code, err := runAnyExit(ctx, "smartctl", "-d", typ, "-a", "-j", d.Path)
 	if err != nil {
 		return nil, nil, err
+	}
+	// A drive that didn't answer the first time won't answer -x either, and
+	// each command it times out stalls the bridge.
+	if code&(smart.ExitCmdLine|smart.ExitOpenFailed) != 0 {
+		return js, nil, nil
 	}
 	text, _, err := runAnyExit(ctx, "smartctl", "-d", typ, "-x", d.Path)
 	return js, text, err

@@ -27,6 +27,8 @@ func TestRules(t *testing.T) {
 		`SUBSYSTEM=="scsi_generic", ENV{ID_PATH}=="pci-0000:03:00.0-sas-phy2-lun-0", SYMLINK+="zawiper/hba0-sg"`,
 		`'DeviceAllow=/dev/zawiper/hba0-sg rw'`,
 		`IMPORT{builtin}="path_id"`,
+		`SYMLINK+="zawiper/hba0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@hba0.service", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}=""`,
+		`SYMLINK+="zawiper/hba0-part%n", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}="", RUN+=`,
 		"# bay slot1: usb_port 4-2 lun 1\n",
 		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="zawiper/slot1"`,
 		`SUBSYSTEM=="scsi_generic", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="zawiper/slot1-sg"`,

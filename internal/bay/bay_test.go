@@ -53,7 +53,7 @@ func drive(t *testing.T) *fake {
 func TestReadClean(t *testing.T) {
 	f := drive(t)
 	f.table = model.Table{Type: "gpt", Parts: []model.Part{{Path: "/dev/sdc1", FSType: "ext4", Label: "data"}}}
-	s := Read(context.Background(), f, f.devs)
+	s := Read(context.Background(), f, f.devs, ReadOpts{})
 	if s.State != model.Present || len(s.Refusals) != 0 {
 		t.Fatalf("state %s refusals %v", s.State, s.Refusals)
 	}
@@ -77,9 +77,11 @@ func TestReadRefusals(t *testing.T) {
 		"two drives": {func(f *fake) { f.devs = append(f.devs, Device{Name: "sdd", Path: "/dev/sdd", Size: 1}) }, "one at a time", false},
 		"in use":     {func(f *fake) { f.inUse = "sdc1 is mounted at /" }, "host is using", false},
 		"no ro":      {func(f *fake) { f.roErr = errors.New("nope") }, "read-only", false},
-		"no smart":   {func(f *fake) { f.smart = []byte(`{"smartctl":{"exit_status":2}}`) }, "SMART can't be read", true},
-		// Val saw slot 0 report 4.14 GB for two different drives.
-		"placeholder size": {func(f *fake) { f.devs[0].Size = 4140000000 }, "placeholder", true},
+		// A drive that doesn't answer, or disagrees about its size, gets no
+		// further reads: no peek.
+		"no smart": {func(f *fake) { f.smart = []byte(`{"smartctl":{"exit_status":2}}`) }, "didn't answer SMART", false},
+		// dock-host-2's dock has reported 4.14 GB in both slots.
+		"placeholder size": {func(f *fake) { f.devs[0].Size = 4140000000 }, "placeholder", false},
 		"HPA": {func(f *fake) {
 			f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
 		}, "keeps 2,048 sectors (1.05 MB) from the host", true},
@@ -88,13 +90,41 @@ func TestReadRefusals(t *testing.T) {
 		f := drive(t)
 		f.table = model.Table{Parts: []model.Part{{Path: "/dev/sdc1", FSType: "ext4"}}}
 		c.mod(f)
-		s := Read(context.Background(), f, f.devs)
+		s := Read(context.Background(), f, f.devs, ReadOpts{})
 		if !strings.Contains(strings.Join(s.Refusals, " "), c.want) {
 			t.Errorf("%s: refusals %v", name, s.Refusals)
 		}
 		if got := len(f.peeked) > 0; got != c.peek {
 			t.Errorf("%s: peeked=%v", name, got)
 		}
+	}
+}
+
+// A drive that doesn't answer says so on the wall as it goes, and its
+// refusal warns about the slot next door.
+func TestReadStepsAndShares(t *testing.T) {
+	f := drive(t)
+	f.table = model.Table{Parts: []model.Part{{Path: "/dev/sdc1", FSType: "ext4"}}}
+	var steps []string
+	s := Read(context.Background(), f, f.devs, ReadOpts{Step: func(m string) { steps = append(steps, m) }, Shares: []string{"bay1"}})
+	if len(s.Refusals) != 0 {
+		t.Fatalf("a good drive: %v", s.Refusals)
+	}
+	if len(steps) != 5 || !strings.HasPrefix(steps[1], "Asking SMART (smartctl), since ") || !strings.HasPrefix(steps[4], "Looking inside /dev/sdc1 read-only, since ") {
+		t.Errorf("steps %q", steps)
+	}
+
+	f = drive(t)
+	f.smart = []byte(`{"smartctl":{"exit_status":2}}`)
+	s = Read(context.Background(), f, f.devs, ReadOpts{Shares: []string{"bay1"}})
+	if r := strings.Join(s.Refusals, " "); !strings.Contains(r, "shares a bridge with bay1.  Take this drive out, or it can stall bay1.") {
+		t.Errorf("refusals %v", s.Refusals)
+	}
+	f = drive(t)
+	f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
+	s = Read(context.Background(), f, f.devs, ReadOpts{Shares: []string{"bay1"}})
+	if r := strings.Join(s.Refusals, " "); strings.Contains(r, "shares a bridge") {
+		t.Errorf("an HPA doesn't stall the bridge: %v", s.Refusals)
 	}
 }
 
@@ -105,7 +135,7 @@ func TestBackupSignatures(t *testing.T) {
 		{Path: "/dev/sdc2", FSType: "LVM2_member"},
 		{Path: "/dev/sdc3", FSType: "vfat", Label: "EFI"},
 	}}
-	s := Read(context.Background(), f, f.devs)
+	s := Read(context.Background(), f, f.devs, ReadOpts{})
 	p := s.Drive.Table.Parts
 	if p[0].Backup == "" || p[1].Backup == "" || p[2].Backup != "" {
 		t.Errorf("backup flags: %q %q %q", p[0].Backup, p[1].Backup, p[2].Backup)

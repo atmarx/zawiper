@@ -125,7 +125,7 @@ func Parse(b []byte) (*Info, error) {
 		return nil, fmt.Errorf("smartctl output isn't JSON: %w", err)
 	}
 	if r.Smartctl.ExitStatus&(ExitCmdLine|ExitOpenFailed) != 0 {
-		return nil, fmt.Errorf("smartctl couldn't open the drive (exit %d)", r.Smartctl.ExitStatus)
+		return nil, fmt.Errorf("smartctl couldn't open it or get it to identify itself (exit %d)", r.Smartctl.ExitStatus)
 	}
 	serial := strings.TrimSpace(r.SerialNumber)
 	if serial == "" || strings.Trim(serial, "0") == "" {

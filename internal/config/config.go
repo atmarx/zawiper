@@ -209,6 +209,25 @@ func LoadBays(dir string) ([]*Bay, error) {
 	return bays, nil
 }
 
+// Siblings names the bays in dir that sit behind the same USB bridge as b:
+// the same port, another LUN.  A bad config elsewhere in dir is ignored,
+// since this only words a refusal.
+func Siblings(dir string, b *Bay) []string {
+	if b.USBPort == "" {
+		return nil
+	}
+	paths, _ := filepath.Glob(filepath.Join(dir, "*.toml"))
+	sort.Strings(paths)
+	var out []string
+	for _, p := range paths {
+		o, err := LoadBay(p)
+		if err == nil && o.Name != b.Name && o.USBPort == b.USBPort {
+			out = append(out, o.Name)
+		}
+	}
+	return out
+}
+
 // overlap says whether two bays' selectors can match the same disk.  A bay
 // on a whole USB port takes every LUN on it.
 func overlap(a, b *Bay) bool {

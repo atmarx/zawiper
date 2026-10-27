@@ -74,6 +74,7 @@ func main() {
 	or(spool, filepath.Join(lib, "spool"))
 
 	var src bay.Source
+	var shares []string
 	readOnly := false
 	if dev {
 		if *devBlock <= 0 || *devBlock%512 != 0 {
@@ -93,13 +94,14 @@ func main() {
 			log.Fatalf("config: %v", err)
 		}
 		src, readOnly = sys, !cfg.Can("wipe")
+		shares = config.Siblings(filepath.Dir(*cfgPath), cfg)
 	}
 
 	host, _ := os.Hostname()
 	software := fmt.Sprintf("bayd %s (%s)", version, commit)
 	sp := &bay.Spool{Root: *spool}
 	b := &bay.Bay{Name: *name, Src: src, StatePath: *statePath, Spool: sp,
-		Host: host, Software: software, Direct: !dev, ReadOnly: readOnly}
+		Host: host, Software: software, Direct: !dev, ReadOnly: readOnly, Shares: shares}
 	if dev {
 		b.Block = *devBlock
 	}
