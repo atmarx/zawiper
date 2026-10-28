@@ -73,6 +73,7 @@ A "drive" can be a file: `truncate -s 1000204886016 /tmp/bay.img`, then run `bin
 ## Docs
 
 - [docs/bringup.md](docs/bringup.md): from nothing to a signed record, for anyone rolling it out.
+- [site.example/](site.example/README.md): your deployment's settings, in one folder you copy and fill in.
 - [docs/operating.md](docs/operating.md): day to day.  Adding and retiring bays, checking scope, holding a bay.
 - [docs/spec.md](docs/spec.md): what it is, the decisions and why, the hardware lessons, the record format, the phases.
 

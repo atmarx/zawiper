@@ -1,0 +1,18 @@
+# /opt/zawiper/compose.override.yml on the hub host, merged into
+# deploy/hub/compose.yml by Compose.  Optional: delete it if your reverse
+# proxy reaches the page on 127.0.0.1:8460.
+#
+# This one is for a proxy running in a container on its own Docker network.
+# The page then isn't published on the host at all, and the proxy reaches
+# zaweb:8460 over that network.  The bay links stay on 8461.
+services:
+  zaweb:
+    ports: !override
+      - "8461:8461"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: your-proxy-network

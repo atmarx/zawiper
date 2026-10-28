@@ -22,7 +22,7 @@ bin/bayd -dev-bay /tmp/bay.img -dev-smart internal/smart/testdata/st31000528as.j
 
 ## Adding a bay
 
-The same as the first one ([bringup.md](bringup.md) §3–4): find the selector with `sudo bin/bayd ports`, write `/etc/zawiper/bays/<name>.toml`, mint its certificate with `deploy/ca.sh bay <host> <name>`, install, and check its scope.  The config takes exactly one selector:
+The same as the first one ([bringup.md](bringup.md) §3–4): find the selector with `sudo bin/bayd ports`, write `site/bays/<host>/<name>.toml`, mint its certificate with `deploy/ca.sh bay <host> <name>`, run `make bay-config bay HOST=<host>`, and check its scope.  The config takes exactly one selector:
 
 ```
 name = "dock-a"
@@ -38,7 +38,7 @@ An SAS port qualifies only on an HBA in IT mode (`mpt3sas`), never behind `megar
 
 ## Retiring a bay
 
-Remove its config from `/etc/zawiper/bays/` and run the installer again: it disables the bay's link and tells you if its `bayd@` is still running.  Delete its key from `/etc/zawiper/tls/`.  The bay's records stay on the hub, filed under each drive's serial.
+Remove its config from `site/bays/<host>/` and from `/etc/zawiper/bays/` on the host (`make bay-config` never deletes one), and run the installer again: it disables the bay's link and tells you if its `bayd@` is still running.  Delete its key from `/etc/zawiper/tls/`.  The bay's records stay on the hub, filed under each drive's serial.
 
 ### What the installer does
 

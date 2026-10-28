@@ -15,6 +15,7 @@ cmd/bayd-link    network side, one per bay, mTLS to the hub, no devices
 cmd/zaweb        the hub: wall, records, signing (a container)
 cmd/zverify      a buyer's check of a drive against its record
 deploy/          bayrules (udev + drop-ins), install-bay.sh, ca.sh, units, hub compose
+site.example/    a deployment's overlay, copied to site/ (gitignored): hub .env, override, bay configs
 internal/        bay, link, hub, web, wipe, smart, grade, records, sign, proto, config, model
 ```
 
@@ -25,7 +26,7 @@ internal/        bay, link, hub, web, wipe, smart, grade, records, sign, proto, 
 - **Bays never ship through CI.**  `make bay HOST=` or the installer, under a person's own sudo.  CI deploys the hub only.  The installer never restarts a running `bayd@`.
 - **Never claim more than happened.**  Flash gets no level from an overwrite.  No Purge unless the drive's sanitize command ran and got through the bridge.
 - **Keys stay out of git.**  `deploy/ca.sh` refuses to write inside a work tree.  The CA root password is typed by a person in a real terminal, never through an agent's transcript.
-- **Deployment-agnostic.**  No hostnames, addresses or org names in code, defaults or docs.  A deployment's specifics live on its own hosts: `/opt/zawiper/.env` and `compose.override.yml` on the hub, `/etc/zawiper/` on dock hosts.  Examples use `example.org` and `192.0.2.0/24`.
+- **Deployment-agnostic.**  No hostnames, addresses or org names in code, defaults or docs.  A deployment's specifics live in its `site/` (from `site.example/`, never committed here) and get pushed to its hosts: `/opt/zawiper/.env` and `compose.override.yml` on the hub, `/etc/zawiper/bays/` on dock hosts.  No keys in `site/`.  Examples use `example.org` and `192.0.2.0/24`.
 
 ## Working on it
 

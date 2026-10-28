@@ -1,0 +1,6 @@
+# A port on a SAS HBA in IT mode (mpt3sas, never megaraid_sas).  The whole
+# disk's name from `ls -l /dev/disk/by-path/ | grep sas`, not a -part.
+name = "hba0"
+sas_path = "pci-0000:03:00.0-sas-phy2-lun-0"
+smart_type = "scsi"
+caps = "wipe"

@@ -1,1 +1,4 @@
 bin/
+# Your deployment: a copy of site.example/, filled in.  Make it its own
+# private repo if you want its history.
+/site/

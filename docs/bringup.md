@@ -21,6 +21,14 @@ Pick these names before you start:
 - **The link address,** e.g. `zawiper.example.org:8461`: what bays dial.  It can be the same name.  It must be in the hub certificate.
 - **Each bay's host and name,** e.g. `lab-a` and `bay1`.  The bay name is 1–32 of `a-z 0-9 _ -`.  The pair shows up on every record, so pick names an auditor will understand in two years.
 
+Then write them down where `make` can find them.  On the build machine, in your clone:
+
+```
+make site
+```
+
+That copies `site.example/` to `site/`, which git ignores.  `site/site.env` takes the link address (`HUB`) and the hub host (`HUB_HOST`), `site/hub/` the hub's settings, and `site/bays/<host>/` one file per bay.  It holds no keys, ever.  Make it a private repo of its own if you want your fleet's history.  [site.example/README.md](../site.example/README.md) has the details.
+
 ### Hardware that works, and what to avoid
 
 - **A USB-SATA bridge has to pass SMART.**  Before you build a bay around a dock, plug a drive in and run `sudo smartctl -d sat -i /dev/sdX`.  If it doesn't show the drive's real serial, the bay will refuse every drive: the serial is what a record is filed under.  `sudo hdparm -N /dev/sdX` should answer too, which is the hidden-sector check.  The ASMedia ASM1156 passes both.
@@ -57,8 +65,11 @@ sudo cp …/zawiper-certs/hub/{ca.crt,hub.crt,hub.key} /opt/zawiper/tls/
 sudo chown 8460 /opt/zawiper/tls/hub.key && sudo chmod 0400 /opt/zawiper/tls/hub.key
 
 sudo cp deploy/hub/compose.yml /opt/zawiper/
-echo 'ZAWIPER_HOSTNAME=zawiper.example.org' | sudo tee /opt/zawiper/.env
-echo 'TZ=America/New_York'                   | sudo tee -a /opt/zawiper/.env
+```
+
+Fill in `site/hub/.env` on the build machine (the page's name and the timezone), then `make hub-site` to put it in `/opt/zawiper/`.  Back on the hub host:
+
+```
 cd /opt/zawiper && sudo docker compose up -d
 ```
 
@@ -72,19 +83,7 @@ zawiper.example.org {
 }
 ```
 
-If your proxy runs in a container on its own Docker network, don't publish 8460 at all.  Instead, write `/opt/zawiper/compose.override.yml` beside the compose file, and Compose merges it in:
-
-```
-services:
-  zaweb:
-    ports: !override
-      - "8461:8461"
-    networks: [proxy]
-networks:
-  proxy:
-    external: true
-    name: your-proxy-network
-```
+If your proxy runs in a container on its own Docker network, don't publish 8460 at all: fill in `site/hub/compose.override.yml` with the network's name, and `make hub-site` puts it beside the compose file, where Compose merges it in.  Otherwise delete that file from `site/hub/`.
 
 The links come in on **8461**, mutual TLS, straight to zaweb with no proxy in between: each bay shows the hub its own certificate.  Open 8461 to your dock hosts and nothing else.
 
@@ -120,7 +119,7 @@ sudo ~/zawiper-bay/bin/bayd ports
 
 It lists each USB disk with the port it's on (`2-1`) and its LUN.  A two-slot dock shows LUNs 0 and 1 on one port.  For a SAS HBA port, use `ls -l /dev/disk/by-path/ | grep sas` and take the whole disk's name (`pci-0000:03:00.0-sas-phy2-lun-0`).
 
-**Write `/etc/zawiper/bays/<name>.toml`,** root-owned, named after the bay:
+**Write its config** as `site/bays/<host>/<name>.toml`, named after the bay:
 
 ```
 name = "bay1"
@@ -132,13 +131,19 @@ caps = "wipe"               # leave caps out and the bay only reads
 
 **Mint its certificate,** on the CA machine: `deploy/ca.sh bay lab-a bay1`.  Copy `zawiper-certs/lab-a/{ca.crt,bay1.crt,bay1.key}` to `/etc/zawiper/tls/` on the dock host: the key `root:root 0600`, the certificates `0644`.  Then delete the key from the CA machine.  The bay has it, and a bay key is what lets something speak to the hub as that bay.
 
-**Install:**
+**Install,** on the dock host, with the config copied to `/etc/zawiper/bays/<name>.toml` (root-owned):
 
 ```
 sudo ~/zawiper-bay/deploy/install-bay.sh --hub zawiper.example.org:8461
 ```
 
-or, from the build machine: `make bay HOST=lab-a HUB=zawiper.example.org:8461`.  The hub address goes in `/etc/zawiper/link.env` the first time; later installs keep it.  The bay shows up on the wall.
+Or, from the build machine, the config and the install in one go:
+
+```
+make bay-config bay HOST=lab-a
+```
+
+`bay-config` checks the host's configs with bayd's own parser, then copies them to `/etc/zawiper/bays/`.  `bay` builds the bundle, copies it over and runs the installer with `HUB` from `site/site.env`.  The hub address goes in `/etc/zawiper/link.env` the first time; later installs keep it.  The bay shows up on the wall.
 
 ## 4. Prove the scope before you trust it
 
@@ -179,7 +184,7 @@ Repeat §3 and §4 for each one.  A dock host can hold many bays, one per slot o
 ## 7. Keeping it running
 
 - **Bay certificates last a year.**  Put the renewal on a calendar.  Re-mint with `ca.sh bay`, copy the new pair in, and restart `bayd-link@<bay>`; that's safe even mid-wipe.
-- **Updating a dock host** is the same `make bay` or installer run.  It never restarts a running `bayd@`, which might be mid-wipe.  It tells you which ones to restart once their bays are idle.
+- **Updating a dock host** is the same `make bay HOST=` or installer run.  It never restarts a running `bayd@`, which might be mid-wipe.  It tells you which ones to restart once their bays are idle.
 - **Updating the hub** is `make image` and `docker compose up -d`, or a push, if CI deploys it.  A running wipe doesn't need the hub.  Records wait on the dock host until the hub is back.
 - **Back up `/opt/zawiper/data`.**  Then restore it somewhere and open a record from the copy.  A backup is not a backup until it has been restored.
 

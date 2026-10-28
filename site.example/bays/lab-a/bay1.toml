@@ -1,0 +1,11 @@
+# /etc/zawiper/bays/bay1.toml on dock host lab-a.  `make bay-config HOST=lab-a`
+# checks every config for the host and copies them there.
+#
+# Slot 0 of a two-slot USB dock.  Find the port and LUN with
+# `sudo bin/bayd ports` on the host, with a drive in.  The two slots are one
+# failure domain: swap a drive only when both bays are idle.
+name = "bay1"
+usb_port = "2-1"
+usb_lun = "0"
+smart_type = "sat"
+caps = "wipe"
