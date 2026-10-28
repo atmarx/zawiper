@@ -1,4 +1,4 @@
-# Za Wiper's lane (spec §8, §11).  Every push that touches zawiper/ gets vet
+# Za Wiper's hub lane (docs/spec.md §8, §11).  Every push gets vet
 # and test.  On master, it also builds the hub image and brings the hub
 # stack up on hub-host.
 #
@@ -8,9 +8,8 @@
 # may build, copy, install or start them.
 #
 # What it assumes:
-#   - an agent labelled host=hub-host, as .woodpecker/deploy.yml does.
-#   - the-ark is a trusted repo, so steps may mount host paths.
-#     deploy.yml already needs that.
+#   - an agent labelled host=hub-host.
+#   - this is a trusted repo in Woodpecker, so steps may mount host paths.
 #   - the image is built by hub-host's own Docker (the socket) and never
 #     pushed, so no registry and no secrets.
 #   - /opt/zawiper/tls holds ca.crt, hub.crt and hub.key (deploy/ca.sh hub),
@@ -23,7 +22,7 @@
 when:
   - event: push
     path:
-      include: ['zawiper/**', '.woodpecker/zawiper.yml']
+      exclude: ['docs/**', '*.md']
 
 labels:
   host: hub-host
@@ -34,7 +33,6 @@ steps:
     environment:
       CGO_ENABLED: "0"
     commands:
-      - cd zawiper
       - go vet ./...
       - go test ./...
 
@@ -43,8 +41,8 @@ steps:
     when:
       - branch: master
     commands:
-      - "VERSION=$$(sed -n 's/^VERSION *:= *//p' zawiper/Makefile)"
-      - "docker build -f zawiper/deploy/Dockerfile --build-arg VERSION=$${VERSION} --build-arg COMMIT=${CI_COMMIT_SHA:0:7} -t zawiper/zaweb:${CI_COMMIT_SHA:0:7} -t zawiper/zaweb:latest zawiper"
+      - "VERSION=$$(sed -n 's/^VERSION *:= *//p' Makefile)"
+      - "docker build -f deploy/Dockerfile --build-arg VERSION=$${VERSION} --build-arg COMMIT=${CI_COMMIT_SHA:0:7} -t zawiper/zaweb:${CI_COMMIT_SHA:0:7} -t zawiper/zaweb:latest ."
       - docker image prune -f >/dev/null || true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -57,7 +55,7 @@ steps:
       - "for f in ca.crt hub.crt hub.key; do test -s /opt/zawiper/tls/$${f} || { echo \"No /opt/zawiper/tls/$${f}.  Make it with deploy/ca.sh hub, by hand.\"; exit 1; }; done"
       - mkdir -p /opt/zawiper/data
       - chown 8460:8460 /opt/zawiper/data
-      - cp zawiper/deploy/hub/compose.yml /opt/zawiper/compose.yml
+      - cp deploy/hub/compose.yml /opt/zawiper/compose.yml
       - docker compose -f /opt/zawiper/compose.yml up -d --remove-orphans
       # Running (not restarting), and answering where Caddy will ask.
       - sleep 5

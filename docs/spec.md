@@ -34,7 +34,7 @@ There's no login, and the page isn't reachable from outside the LAN.  The record
 ### Non-goals
 
 - Access from the internet, or any kind of public lookup.
-- A file browser on the page.  The disk side has no network and the hub has no device, so drive contents never cross the link.  Records never hold what was on a drive either.  The inspect page shows the partitions, labels and used space, and a wipe needs the serial typed in, so you get a last look before anything is erased (xram, 2026-10-25).  For more than a look, either eject the drive and mount it read-only on a workstation, or run `bayd browse <bay>` at a root shell on the dock host: it mounts each filesystem read-only, `noexec,nosuid,nodev`, with no journal replay, for SFTP from another machine.  That path runs over SSH to the dock host, never through the hub (`8792576`; `zawiper/README.md`).
+- A file browser on the page.  The disk side has no network and the hub has no device, so drive contents never cross the link.  Records never hold what was on a drive either.  The inspect page shows the partitions, labels and used space, and a wipe needs the serial typed in, so you get a last look before anything is erased (xram, 2026-10-25).  For more than a look, either eject the drive and mount it read-only on a workstation, or run `bayd browse <bay>` at a root shell on the dock host: it mounts each filesystem read-only, `noexec,nosuid,nodev`, with no journal replay, for SFTP from another machine.  That path runs over SSH to the dock host, never through the hub (`8792576`; `docs/operating.md`).
 - Being someone else's audit.  But the target is to **satisfy NIST SP 800-88 Rev. 2** (xram, 2026-10-24).  Rev. 2 replaced Rev. 1 in September 2025.  Apart from crypto erase, it no longer lists techniques itself; it defers to IEEE 2883-2022.  So, for each media type:
   - **Purge where the drive allows it.**  That means the drive's own sanitize command (overwrite, block erase, or crypto erase), from IEEE 2883's table for that interface.
   - **Clear otherwise.**  That's our keystream overwrite with full read-back.  It can't reach sectors the drive has remapped.
@@ -199,7 +199,7 @@ A 1 GiB block takes seven seconds or so, so the map alone moves in steps.  Betwe
 
 `bayd` keeps the cell states, and the page gets them as one short string a tick.  Every viewer gets the same string (§4.3).  The final map, with each block's write and read times, goes into the record.  `record.md` and the printout carry it as text, so the map ships with the drive.
 
-The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9VPAX9NA` on 2026-10-24.  It's a root CLI with the same read and refusals as `bayd`, and the serial on the command line as the confirmation.  Phase 2 moved its engine into `bayd`, and the CLI is gone.
+The first map came from `zwipe` (`cmd/zwipe`), the hand-run wipe for `9VPAX9NA` on 2026-10-24.  It's a root CLI with the same read and refusals as `bayd`, and the serial on the command line as the confirmation.  Phase 2 moved its engine into `bayd`, and the CLI is gone.
 
 ## 7. The record
 
@@ -284,13 +284,13 @@ The first map came from `zwipe` (`zawiper/cmd/zwipe`), the hand-run wipe for `9V
   - Commands, from the hub: `status`, `reread`, `wipe`, `load`, `ack`, `eject`.  No command takes a device, there's no "run this" command, and there's no abort (§4.3).
   - The host can be bare metal or a VM with the dock passed through.  The VM is preferred: a mistake can't reach a hypervisor's own disks.
   - **Releases don't go through CI.**  A key that can install `bayd` can wipe whatever is in a bay.  So `bayd` ships through a `fleet zawiper-bay <host>` play run with xram's become: a pinned binary, plus each bay's config and certificate.  Nothing installs it automatically.
-- **The hub, `zaweb`**: Go, unprivileged, with no devices.  It deploys through the-ark's Woodpecker lane like any other container.  It runs as a stack on hub-host (§11).
+- **The hub, `zaweb`**: Go, unprivileged, with no devices.  It deploys through its own Woodpecker lane like any other container.  It runs as a stack on hub-host (§11).
   - It holds the `bayd` connections, the records, and a read-only staging mount for Load.
   - It serves the wall of bays (one shared view, §4.3), the list, the records, and the certificates.  Live progress reaches browsers as server-sent events.
   - A bug in it can't write to a disk directly.  It can only send `bayd` a command, and `bayd` checks every one (§4.1).
 - **Payload:** pulled from the hub (§6.3).  Dock hosts need no NFS export.
 - **Tests without a drive:** `bayd --bay-file` on a loop device, with device-mapper `error` and `delay` targets for read failures and stalls, and a wrap-around map that fakes a lying-capacity drive (*v0.1 §13*).
-- **Code lives in** `zawiper/` in this repo.  It deploys through its own Woodpecker lane; the seed pipeline doesn't run for changes there.
+- **Code lives in** its own repo, `zawiper`, since 2026-10-27; before that, `zawiper/` in the-ark, where its history starts.  The hub deploys through `.woodpecker/hub.yml`.
 - **ntfy** on DONE, FAILED, INTERRUPTED, and ALARM.  A 20-hour job ends while you're asleep.
 
 ## 9. What this means for `ark stamp`
