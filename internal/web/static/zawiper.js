@@ -7,7 +7,7 @@
   // table; keep the two in step.
   const GLYPHS = {
     ".": ["░", "todo"], W: ["W", "cur"], R: ["r", "cur"],
-    w: ["■", "written"], v: ["■", "verified"], s: ["■", "slow"], B: ["B", "bad"],
+    w: ["■", "written"], v: ["■", "verified"], s: ["▒", "slow"], B: ["B", "bad"],
   };
 
   function cells(el, map) {

@@ -23,7 +23,7 @@ var glyphs = map[byte]struct{ glyph, class string }{
 	model.CellReading:  {"r", "cur"},
 	model.CellWritten:  {"■", "written"},
 	model.CellVerified: {"■", "verified"},
-	model.CellSlow:     {"■", "slow"},
+	model.CellSlow:     {"▒", "slow"}, // not ■: light yellow next to white is too close on blue
 	model.CellBad:      {"B", "bad"},
 }
 

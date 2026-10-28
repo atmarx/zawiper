@@ -228,6 +228,7 @@ tr.flag td { background: var(--hazard-bg); color: var(--hazard-ink); }
   --cga-lblue: #5555ff;
   --cga-lcyan: #55ffff;
   --cga-yellow: #ffff55;
+  --cga-lmagenta: #ff55ff;
   --cga-white: #ffffff;
 }
 html { overflow-x: clip; }
@@ -342,7 +343,7 @@ html { overflow-x: clip; }
 .c-todo { color: var(--cga-gray); }
 .c-written { color: var(--cga-lcyan); }
 .c-verified { color: var(--cga-white); }
-.c-slow { color: var(--cga-yellow); }
+.c-slow { color: var(--cga-lmagenta); }
 .c-cur { color: #000; background: var(--cga-yellow); animation: blink 1s steps(1) infinite; }
 .c-bad { color: var(--cga-white); background: var(--cga-red); }
 .c-unk { color: #ff55ff; }
