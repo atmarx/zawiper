@@ -81,4 +81,4 @@ Go, no cgo.  A dock host needs Linux with systemd and udev, `smartmontools`, `hd
 
 ## License
 
-MIT.  See [LICENSE](LICENSE).
+Apache 2.0.  See [LICENSE](LICENSE) and [NOTICE](NOTICE).  The surface map's font, IBM VGA 8×16 from VileR's Ultimate Oldschool PC Font Pack, keeps its own license, CC BY-SA 4.0.
