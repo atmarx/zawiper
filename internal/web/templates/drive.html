@@ -15,6 +15,7 @@
   <li>
     <a href="/drives/{{$.Dir}}/{{.ID}}">{{when .Finished}}</a>
     · {{.Kind}} {{template "badge" .Health.Grade}}
+    {{if .Host}}<span class="muted">· {{.Host}}/{{.Bay}}</span>{{end}}
     {{if .Refusals}}<span class="muted">· {{len .Refusals}} refusal{{if gt (len .Refusals) 1}}s{{end}}</span>{{end}}
   </li>
 {{end}}

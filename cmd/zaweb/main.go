@@ -31,7 +31,7 @@ var (
 func main() {
 	listen := flag.String("listen", ":8460", "address to serve the page on")
 	root := flag.String("records", "/srv/zawiper", "where records live; the hub files them as bays send them")
-	hosts := flag.String("hosts", "zawiper.example.org", "comma-separated Host headers to answer; empty answers any (dev only)")
+	hosts := flag.String("hosts", "", "comma-separated Host headers to answer: the name browsers use for the page, e.g. zawiper.example.org (required, except with -demo)")
 	demo := flag.Bool("demo", false, "serve a pretend fleet of four bays, for designing the page without hardware")
 	linkAddr := flag.String("link-addr", fmt.Sprintf(":%d", proto.LinkPort), "address the bays dial in to (TLS)")
 	tlsCA := flag.String("tls-ca", "/etc/zawiper/tls/ca.crt", "the CA that signs bay certificates")
@@ -81,6 +81,11 @@ func main() {
 		if h = strings.TrimSpace(h); h != "" {
 			s.Hosts = append(s.Hosts, h)
 		}
+	}
+	// A page that answers any Host can be reached by DNS rebinding, so only
+	// the demo, which touches no drive, may.
+	if len(s.Hosts) == 0 && !*demo {
+		log.Fatal("-hosts: name the host browsers use for the page, e.g. -hosts zawiper.example.org")
 	}
 	srv := &http.Server{
 		Addr:              *listen,

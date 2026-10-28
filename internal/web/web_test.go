@@ -124,7 +124,7 @@ func setup(t *testing.T) (*fakeFleet, http.Handler, *model.Drive) {
 		}},
 	}
 	store := &records.Store{Root: t.TempDir()}
-	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(4 * time.Second), Host: "dock-host", Bay: "bay1", Software: "test", Drive: *drv, Health: drv.Health}
+	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(4 * time.Second), Host: "lab-a", Bay: "bay1", Software: "test", Drive: *drv, Health: drv.Health}
 	if err := store.SaveInspect(rec, js, []byte("smartctl text")); err != nil {
 		t.Fatal(err)
 	}
@@ -133,11 +133,11 @@ func setup(t *testing.T) (*fakeFleet, http.Handler, *model.Drive) {
 		t.Fatal(err)
 	}
 	f := &fakeFleet{bays: map[string]hub.Bay{
-		"dock-host/bay1": {Key: "dock-host/bay1", Host: "dock-host", Name: "bay1", Caps: []string{"wipe"}, Online: true,
+		"lab-a/bay1": {Key: "lab-a/bay1", Host: "lab-a", Name: "bay1", Caps: []string{"wipe"}, Online: true,
 			Snap: model.Snapshot{State: model.Present, Bay: "bay1", Session: session, Drive: drv, RecordID: rec.ID}},
-		"dock-host/bay2": {Key: "dock-host/bay2", Host: "dock-host", Name: "bay2", Caps: []string{"wipe"}, Online: true,
+		"lab-a/bay2": {Key: "lab-a/bay2", Host: "lab-a", Name: "bay2", Caps: []string{"wipe"}, Online: true,
 			Snap: model.Snapshot{State: model.Empty, Bay: "bay2"}},
-		"dev-host/sas0": {Key: "dev-host/sas0", Host: "dev-host", Name: "sas0", Online: false, Seen: t0,
+		"lab-b/sas0": {Key: "lab-b/sas0", Host: "lab-b", Name: "sas0", Online: false, Seen: t0,
 			Snap: model.Snapshot{State: model.Offline}},
 	}}
 	s := &Server{Fleet: f, Store: store, Hosts: []string{host}, Version: "test"}
@@ -201,7 +201,7 @@ func TestPages(t *testing.T) {
 	for path, want := range map[string][]string{
 		"/drives":          {"9VPAX9NA", "1 drive on record"},
 		"/drives?q=x9n":    {"9VPAX9NA"},
-		"/drives/9VPAX9NA": {"2026-10-23T14-02-11Z-inspect", "inspect"},
+		"/drives/9VPAX9NA": {"2026-10-23T14-02-11Z-inspect", "inspect", "lab-a/bay1"},
 		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect":               {"DRIVE RECORD", "Airflow_Temperature_Cel", "5 000c50 02d635ade", "Nothing was written", "PASSED"},
 		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/record.md":     {"# 9VPAX9NA"},
 		"/drives/9VPAX9NA/2026-10-23T15-02-11Z-wipe":                  {"Wiped, verified", "Wipe: verified", "1,000,204,886,016 of 1,000,204,886,016", "██▒█", "#401", "Found before the wipe", "smart-before.txt", "Every byte", "The key is published", "/static/certificate.css"},
@@ -228,7 +228,7 @@ func TestPages(t *testing.T) {
 		"/drives/NOPE", "/drives/9VPAX9NA/nope",
 		"/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/drive.json",
 		"/drives/9VPAX9NA/..%2f..%2fetc/record.md",
-		"/bays/dock-host/nope", "/bays/dock-host%2fbay1/x", "/fragment/bays/nope/nope",
+		"/bays/lab-a/nope", "/bays/lab-a%2fbay1/x", "/fragment/bays/nope/nope",
 	} {
 		if w := get(h, path); w.Code != 404 {
 			t.Errorf("%s: %d", path, w.Code)
@@ -238,7 +238,7 @@ func TestPages(t *testing.T) {
 
 func TestWall(t *testing.T) {
 	f, h, drv := setup(t)
-	f.set("dock-host/bay2", func(b *hub.Bay) {
+	f.set("lab-a/bay2", func(b *hub.Bay) {
 		b.Snap = model.Snapshot{State: model.Running, Drive: drv, Session: session, Job: &model.Job{
 			Kind: "wipe", Phase: "verify", Serial: drv.Serial(), Map: "vvvvRwww", Done: 1500, Total: 1000, Started: t0,
 		}}
@@ -250,14 +250,14 @@ func TestWall(t *testing.T) {
 		}
 		body := w.Body.String()
 		wants(t, path, body,
-			"dock-host", "dev-host", // grouped by host
-			`href="/bays/dock-host/bay1"`, `data-key="dock-host/bay1"`, `data-sig="`,
+			"lab-a", "lab-b", // grouped by host
+			`href="/bays/lab-a/bay1"`, `data-key="lab-a/bay1"`, `data-sig="`,
 			"ST31000528AS", `<span class="serial-tail">PAX9NA</span>`, // the last six, big
 			"⚠ Looks like a backup", "tile-warn",
 			"tile-running", "75.0%", "Reading it back", `data-field="mini"`, `<span class="c-verified">■■■■</span><span class="c-cur">r</span>`,
 			"tile-offline", "OFFLINE", "Link down",
 		)
-		if strings.Index(body, "dock-host") > strings.Index(body, "dev-host") {
+		if strings.Index(body, "lab-a") > strings.Index(body, "lab-b") {
 			t.Errorf("%s: hosts out of order", path)
 		}
 	}
@@ -266,9 +266,9 @@ func TestWall(t *testing.T) {
 
 func TestBayStates(t *testing.T) {
 	f, h, drv := setup(t)
-	const page = "/bays/dock-host/bay1"
-	const frag = "/fragment/bays/dock-host/bay1"
-	set := func(s model.Snapshot) { f.set("dock-host/bay1", func(b *hub.Bay) { b.Snap = s }) }
+	const page = "/bays/lab-a/bay1"
+	const frag = "/fragment/bays/lab-a/bay1"
+	set := func(s model.Snapshot) { f.set("lab-a/bay1", func(b *hub.Bay) { b.Snap = s }) }
 	job := func(phase, m, evidence string) *model.Job {
 		return &model.Job{Kind: "wipe", Phase: phase, Serial: drv.Serial(), Session: session, Started: t0,
 			Ended: t0.Add(2 * time.Hour), Map: m, Done: 2 << 30, Total: 1 << 30, MBps: 150, ETA: 3725, TempC: 41,
@@ -278,9 +278,9 @@ func TestBayStates(t *testing.T) {
 	// PRESENT: the drive card, and the confirm drawn from it.
 	body := get(h, page).Body.String()
 	wants(t, "present", body, "ST31000528AS", "9VPA", "X9NA", "PASS WITH NOTES", "312.00 GB used", "Looks like a backup",
-		`data-act="/api/bays/dock-host/bay1/reread"`, "Re-read", `data-fragment="/fragment/bays/dock-host/bay1"`,
+		`data-act="/api/bays/lab-a/bay1/reread"`, "Re-read", `data-fragment="/fragment/bays/lab-a/bay1"`,
 		`disabled title="Phase 3">Wipe + Load`,
-		`<dialog class="confirm confirm-warn"`, `data-url="/api/bays/dock-host/bay1/wipe"`,
+		`<dialog class="confirm confirm-warn"`, `data-url="/api/bays/lab-a/bay1/wipe"`,
 		`data-serial="9VPAX9NA"`, `data-session="2026-10-25T09:30:00.123456789Z"`,
 		"Erase ST31000528AS, serial 9VPAX9NA, 1.00 TB?", "Found on it: GPT · 2 partitions", "Erase this backup drive",
 		"This read's record")
@@ -325,7 +325,7 @@ func TestBayStates(t *testing.T) {
 	body = get(h, page).Body.String()
 	wants(t, "done", body, "Wiped and verified.", "PASS WITH NOTES", "2:00:00", "1.07 GB", "Slow blocks",
 		`href="/drives/9VPAX9NA/2026-10-23T16-02-11Z-wipe"`, "The record",
-		`data-act="/api/bays/dock-host/bay1/ack"`, `data-act="/api/bays/dock-host/bay1/eject"`, "Done.  Every block")
+		`data-act="/api/bays/lab-a/bay1/ack"`, `data-act="/api/bays/lab-a/bay1/eject"`, "Done.  Every block")
 
 	// FAILED: the evidence before anything else.
 	set(model.Snapshot{State: model.Failed, Session: session, Drive: drv, Job: job("verify", "vvvBwwww", "read mismatch at offset 3,221,225,472: 512 bytes differ")})
@@ -344,7 +344,7 @@ func TestBayStates(t *testing.T) {
 	// ALARM: a full-width stop that needs acknowledging.
 	set(model.Snapshot{State: model.Alarm, Session: session, Drive: drv, Job: job("write", "www.....", "serial changed: 9VPAX9NA became ZZZ")})
 	body = get(h, page).Body.String()
-	wants(t, "alarm", body, `class="stop"`, "STOP", "bayd ended the job itself", "serial changed", `data-act="/api/bays/dock-host/bay1/ack"`)
+	wants(t, "alarm", body, `class="stop"`, "STOP", "bayd ended the job itself", "serial changed", `data-act="/api/bays/lab-a/bay1/ack"`)
 	if strings.Contains(body, "/eject") {
 		t.Error("ALARM offers Eject before it's acknowledged")
 	}
@@ -356,7 +356,7 @@ func TestBayStates(t *testing.T) {
 	wants(t, "reading", get(h, frag).Body.String(), "smartctl -x /dev/zawiper/bay1")
 
 	// OFFLINE, whatever the last snapshot said.
-	body = get(h, "/bays/dev-host/sas0").Body.String()
+	body = get(h, "/bays/lab-b/sas0").Body.String()
 	wants(t, "offline", body, "OFFLINE", "link is down")
 	if strings.Contains(body, "<button") {
 		t.Error("an offline bay has buttons")
@@ -365,8 +365,8 @@ func TestBayStates(t *testing.T) {
 
 func TestWipeableNeedsTheCap(t *testing.T) {
 	f, h, _ := setup(t)
-	f.set("dock-host/bay1", func(b *hub.Bay) { b.Caps = nil })
-	wants(t, "no cap", get(h, "/fragment/bays/dock-host/bay1").Body.String(), "data-open-confirm disabled", "isn&#39;t set up to wipe")
+	f.set("lab-a/bay1", func(b *hub.Bay) { b.Caps = nil })
+	wants(t, "no cap", get(h, "/fragment/bays/lab-a/bay1").Body.String(), "data-open-confirm disabled", "isn&#39;t set up to wipe")
 }
 
 func TestWrongHost(t *testing.T) {
@@ -393,7 +393,7 @@ func TestGuard(t *testing.T) {
 		"null origin":  func(r *http.Request) { r.Header.Set("Origin", "null") },
 	}
 	for _, verb := range []string{"reread", "wipe", "ack", "eject"} {
-		path := "/api/bays/dock-host/bay1/" + verb
+		path := "/api/bays/lab-a/bay1/" + verb
 		for name, mod := range refused {
 			if w := post(h, path, wipeBodyOK, mod); w.Code < 400 {
 				t.Errorf("%s %s: %d", verb, name, w.Code)
@@ -407,7 +407,7 @@ func TestGuard(t *testing.T) {
 		}
 	}
 	for _, verb := range []proto.Verb{proto.Reread, proto.Wipe, proto.Ack, proto.Eject} {
-		if w := post(h, "/api/bays/dock-host/bay1/"+string(verb), wipeBodyOK, nil); w.Code != 200 {
+		if w := post(h, "/api/bays/lab-a/bay1/"+string(verb), wipeBodyOK, nil); w.Code != 200 {
 			t.Errorf("good %s: %d %s", verb, w.Code, w.Body.String())
 		}
 	}
@@ -416,7 +416,7 @@ func TestGuard(t *testing.T) {
 		t.Fatalf("calls: %+v", got)
 	}
 	for i, verb := range []proto.Verb{proto.Reread, proto.Wipe, proto.Ack, proto.Eject} {
-		if got[i].Key != "dock-host/bay1" || got[i].Req.Verb != verb {
+		if got[i].Key != "lab-a/bay1" || got[i].Req.Verb != verb {
 			t.Errorf("call %d: %+v", i, got[i])
 		}
 		if verb != proto.Wipe && (got[i].Req.Serial != "" || !got[i].Req.Session.IsZero()) {
@@ -427,13 +427,13 @@ func TestGuard(t *testing.T) {
 
 func TestWipePassesSerialAndSession(t *testing.T) {
 	f, h, _ := setup(t)
-	const path = "/api/bays/dock-host/bay1/wipe"
+	const path = "/api/bays/lab-a/bay1/wipe"
 	for name, body := range map[string]string{
 		"empty":          `{}`,
 		"no session":     `{"serial":"9VPAX9NA"}`,
 		"no serial":      `{"session":"2026-10-25T09:30:00Z"}`,
 		"names a device": `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","dev":"/dev/sda"}`,
-		"names a bay":    `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","key":"dev-host/sas0"}`,
+		"names a bay":    `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","key":"lab-b/sas0"}`,
 		"not JSON":       `serial=9VPAX9NA`,
 	} {
 		if w := post(h, path, body, nil); w.Code != http.StatusBadRequest {
@@ -451,21 +451,21 @@ func TestWipePassesSerialAndSession(t *testing.T) {
 		t.Fatalf("calls: %+v", got)
 	}
 	want := proto.Request{Verb: proto.Wipe, Serial: "9VPAX9NA", Session: session}
-	if got[0].Key != "dock-host/bay1" || got[0].Req.Verb != want.Verb || got[0].Req.Serial != want.Serial || !got[0].Req.Session.Equal(want.Session) {
+	if got[0].Key != "lab-a/bay1" || got[0].Req.Verb != want.Verb || got[0].Req.Serial != want.Serial || !got[0].Req.Session.Equal(want.Session) {
 		t.Errorf("wipe went down as %+v, want %+v", got[0], want)
 	}
 
 	// The page's own confirm, as drawn, posts something this accepts.
-	body := get(h, "/bays/dock-host/bay1").Body.String()
+	body := get(h, "/bays/lab-a/bay1").Body.String()
 	if !strings.Contains(body, `data-session="`+session.Format(time.RFC3339Nano)+`"`) {
 		t.Error("the confirm's session doesn't round-trip")
 	}
 
 	// An offline bay or an unknown one never gets a call.
-	if w := post(h, "/api/bays/dev-host/sas0/wipe", wipeBodyOK, nil); w.Code != http.StatusConflict {
+	if w := post(h, "/api/bays/lab-b/sas0/wipe", wipeBodyOK, nil); w.Code != http.StatusConflict {
 		t.Errorf("offline: %d", w.Code)
 	}
-	if w := post(h, "/api/bays/dev-host/nope/wipe", wipeBodyOK, nil); w.Code != 404 {
+	if w := post(h, "/api/bays/lab-b/nope/wipe", wipeBodyOK, nil); w.Code != 404 {
 		t.Errorf("unknown bay: %d", w.Code)
 	}
 	if n := len(f.took()); n != 1 {
@@ -476,7 +476,7 @@ func TestWipePassesSerialAndSession(t *testing.T) {
 func TestNoAbort(t *testing.T) {
 	f, h, _ := setup(t)
 	for _, verb := range []string{"abort", "stop", "cancel", "status", "load"} {
-		if w := post(h, "/api/bays/dock-host/bay1/"+verb, "{}", nil); w.Code != 404 && w.Code != 405 {
+		if w := post(h, "/api/bays/lab-a/bay1/"+verb, "{}", nil); w.Code != 404 && w.Code != 405 {
 			t.Errorf("%s: %d", verb, w.Code)
 		}
 	}
@@ -490,14 +490,14 @@ func TestNoAbort(t *testing.T) {
 
 func TestRereadRateLimitPerBay(t *testing.T) {
 	f, h, _ := setup(t)
-	f.set("dock-host/bay2", func(b *hub.Bay) { b.Snap.State = model.Present })
-	if w := post(h, "/api/bays/dock-host/bay1/reread", "{}", nil); w.Code != 200 {
+	f.set("lab-a/bay2", func(b *hub.Bay) { b.Snap.State = model.Present })
+	if w := post(h, "/api/bays/lab-a/bay1/reread", "{}", nil); w.Code != 200 {
 		t.Fatalf("first: %d", w.Code)
 	}
-	if w := post(h, "/api/bays/dock-host/bay1/reread", "{}", nil); w.Code != http.StatusTooManyRequests {
+	if w := post(h, "/api/bays/lab-a/bay1/reread", "{}", nil); w.Code != http.StatusTooManyRequests {
 		t.Errorf("second inside 2s: %d", w.Code)
 	}
-	if w := post(h, "/api/bays/dock-host/bay2/reread", "{}", nil); w.Code != 200 {
+	if w := post(h, "/api/bays/lab-a/bay2/reread", "{}", nil); w.Code != 200 {
 		t.Errorf("another bay: %d", w.Code)
 	}
 	if n := len(f.took()); n != 2 {
@@ -507,7 +507,7 @@ func TestRereadRateLimitPerBay(t *testing.T) {
 
 func TestEventsSameFrameForEveryone(t *testing.T) {
 	f, h, drv := setup(t)
-	f.set("dock-host/bay1", func(b *hub.Bay) {
+	f.set("lab-a/bay1", func(b *hub.Bay) {
 		b.Snap = model.Snapshot{State: model.Running, Session: session, Drive: drv, Job: &model.Job{
 			Kind: "wipe", Phase: "write", Started: t0, Map: "W.......", Total: 8 << 30}}
 	})
@@ -547,11 +547,11 @@ func TestEventsSameFrameForEveryone(t *testing.T) {
 	if fa != fb {
 		t.Fatalf("first frames differ:\n%s\n%s", fa, fb)
 	}
-	wants(t, "first frame", fa, `"key":"dock-host/bay1"`, `"state":"RUNNING"`, `"map":"W......."`, `"key":"dev-host/sas0","state":"OFFLINE"`)
+	wants(t, "first frame", fa, `"key":"lab-a/bay1"`, `"state":"RUNNING"`, `"map":"W......."`, `"key":"lab-b/sas0","state":"OFFLINE"`)
 
 	// The bay moves on.  Both viewers get the same next frame, byte for byte,
 	// and the signature holds, so the page updates in place.
-	f.set("dock-host/bay1", func(b *hub.Bay) {
+	f.set("lab-a/bay1", func(b *hub.Bay) {
 		j := *b.Snap.Job
 		j.Map, j.Done = "wW......", 1<<30
 		b.Snap.Job = &j
@@ -603,31 +603,31 @@ func TestDemoFleet(t *testing.T) {
 	}
 	ticks, cancel := f.Subscribe()
 	defer cancel()
-	before, _ := f.Bay("dock-host/bay1")
+	before, _ := f.Bay("lab-a/bay1")
 	select {
 	case <-ticks:
 	case <-time.After(3 * time.Second):
 		t.Fatal("no tick")
 	}
-	after, _ := f.Bay("dock-host/bay1")
+	after, _ := f.Bay("lab-a/bay1")
 	if before.Snap.Job.Done == after.Snap.Job.Done {
 		t.Error("the running job didn't move")
 	}
 
-	b, _ := f.Bay("dock-host/bay2")
+	b, _ := f.Bay("lab-a/bay2")
 	if _, err := f.Call(context.Background(), b.Key, proto.Request{Verb: proto.Wipe, Serial: b.Snap.Drive.Serial(), Session: b.Snap.Session.Add(time.Second)}); err == nil {
 		t.Error("the demo took a stale confirm")
 	}
 	if _, err := f.Call(context.Background(), b.Key, proto.Request{Verb: proto.Wipe, Serial: b.Snap.Drive.Serial(), Session: b.Snap.Session}); err != nil {
 		t.Error(err)
 	}
-	if b, _ := f.Bay("dock-host/bay2"); b.Snap.State != model.Running {
+	if b, _ := f.Bay("lab-a/bay2"); b.Snap.State != model.Running {
 		t.Errorf("after wipe: %s", b.Snap.State)
 	}
 
 	// The whole demo renders.
 	h := (&Server{Fleet: f, Store: &records.Store{Root: t.TempDir()}, Version: "test"}).Handler()
-	for _, p := range []string{"/", "/bays/dock-host/bay1", "/bays/dock-host/bay2", "/bays/dev-host/dock", "/bays/dev-host/sas0", "/api/frame"} {
+	for _, p := range []string{"/", "/bays/lab-a/bay1", "/bays/lab-a/bay2", "/bays/lab-b/dock", "/bays/lab-b/sas0", "/api/frame"} {
 		if w := get(h, p); w.Code != 200 {
 			t.Errorf("%s: %d", p, w.Code)
 		}
@@ -656,7 +656,7 @@ func signedWipe(t *testing.T) (*records.Store, *records.Record, *records.Seal) {
 	js, _ := os.ReadFile("../smart/testdata/st31000528as.json")
 	info, _ := smart.Parse(js)
 	t0 := time.Date(2026, 10, 24, 8, 15, 40, 0, time.UTC)
-	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(5 * time.Hour), Host: "dock-host", Bay: "bay1", Software: "bayd 0.2.0 (ddc40cb)",
+	rec := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(5 * time.Hour), Host: "lab-a", Bay: "bay1", Software: "bayd 0.2.0 (ddc40cb)",
 		Drive: model.Drive{Size: info.CapacityBytes, LogicalSector: 512, PhysicalSector: 512, SMART: info, Capacity: &model.Capacity{Method: "hdparm -N; no DCO", Visible: info.CapacityBytes / 512, Native: info.CapacityBytes / 512},
 			Bridge: model.Bridge{VendorID: "174c", ProductID: "1156", Manufacturer: "ASMedia"}},
 		Health: smart.Assess(info)}

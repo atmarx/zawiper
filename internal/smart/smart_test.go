@@ -15,7 +15,7 @@ func fixture(t *testing.T) []byte {
 	return b
 }
 
-// The drive Val found in the bay: healthy, except airflow temperature
+// The first drive found in a bay: healthy, except airflow temperature
 // crossed its threshold once, which is why smartctl exits 32.
 func TestParseRealDrive(t *testing.T) {
 	i, err := Parse(fixture(t))

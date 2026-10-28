@@ -137,7 +137,7 @@ func TestSignRecord(t *testing.T) {
 	info, _ := smart.Parse(js)
 	t0 := time.Date(2026, 10, 24, 9, 15, 40, 0, time.UTC)
 	size := info.CapacityBytes
-	r := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(time.Hour), Host: "dock-host", Bay: "bay1",
+	r := &records.Record{Serial: info.Serial, Started: t0, Finished: t0.Add(time.Hour), Host: "lab-a", Bay: "bay1",
 		Software: "bayd test", Drive: model.Drive{Size: size, SMART: info, Capacity: &model.Capacity{Method: "hdparm -N; no DCO", Visible: size / 512, Native: size / 512}}, Health: smart.Assess(info),
 		Wrote: true, Before: info,
 		Wipe: &wipe.Result{Size: size, Block: 1 << 30, Written: size, Checked: size, Started: t0, Wrote: t0, Verified: t0,

@@ -201,7 +201,7 @@ func TestWipeRefusals(t *testing.T) {
 	}
 
 	f := drive(t)
-	f.devs[0].Size = 4140000000 // the placeholder size dock-host-2's dock reports
+	f.devs[0].Size = 4140000000 // the placeholder size a two-slot ASM1156 dock has reported
 	refused := &Bay{Name: "refused", Src: f, Spool: &Spool{Root: t.TempDir()}}
 	refused.Poll(context.Background(), false)
 	s := refused.Status()

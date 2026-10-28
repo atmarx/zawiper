@@ -13,7 +13,6 @@
 # and each link sees only its own bay's key, not its neighbours'.
 [Unit]
 Description=Za Wiper bay %i, link to the hub
-Documentation=https://git.example.org/atmarx/the-ark/src/branch/master/docs/za-wiper.md
 Wants=network-online.target
 After=network-online.target
 ConditionPathExists=/etc/zawiper/bays/%i.toml

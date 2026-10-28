@@ -58,23 +58,23 @@ func NewDemoFleet() *DemoFleet {
 	toshiba := demoDrive("TOSHIBA DT01ACA050", "Toshiba DT01ACA", "Z3K8P2QAS", 500107862016, 7200, 20412, 38,
 		smart.Health{Grade: smart.Pass}, model.Table{})
 
-	running := &hub.Bay{Key: "dock-host/bay1", Host: "dock-host", Name: "bay1", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
-	running.Snap = model.Snapshot{State: model.Running, Bay: "bay1", Host: "dock-host", Session: now.Add(-3 * time.Hour), ReadAt: now.Add(-3 * time.Hour), Drive: seagate}
+	running := &hub.Bay{Key: "lab-a/bay1", Host: "lab-a", Name: "bay1", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
+	running.Snap = model.Snapshot{State: model.Running, Bay: "bay1", Host: "lab-a", Session: now.Add(-3 * time.Hour), ReadAt: now.Add(-3 * time.Hour), Drive: seagate}
 	running.Snap.Job = newDemoJob(seagate, running.Snap.Session, now.Add(-2*time.Hour))
 	// Start partway into the write pass, so there's something to look at.
 	advance(running.Snap.Job, float64(len(running.Snap.Job.Map))*0.55)
 
-	present := &hub.Bay{Key: "dock-host/bay2", Host: "dock-host", Name: "bay2", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
-	present.Snap = model.Snapshot{State: model.Present, Bay: "bay2", Host: "dock-host", Session: now.Add(-4 * time.Minute), ReadAt: now.Add(-4 * time.Minute), Drive: wd, RecordID: "demo-inspect"}
+	present := &hub.Bay{Key: "lab-a/bay2", Host: "lab-a", Name: "bay2", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
+	present.Snap = model.Snapshot{State: model.Present, Bay: "bay2", Host: "lab-a", Session: now.Add(-4 * time.Minute), ReadAt: now.Add(-4 * time.Minute), Drive: wd, RecordID: "demo-inspect"}
 
-	done := &hub.Bay{Key: "dev-host/dock", Host: "dev-host", Name: "dock", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
+	done := &hub.Bay{Key: "lab-b/dock", Host: "lab-b", Name: "dock", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
 	job := newDemoJob(toshiba, now.Add(-90*time.Minute), now.Add(-80*time.Minute))
 	advance(job, float64(2*len(job.Map)+1))
 	finish(job, now.Add(-12*time.Minute))
-	done.Snap = model.Snapshot{State: model.Done, Bay: "dock", Host: "dev-host", Session: job.Session, ReadAt: job.Session, Drive: toshiba, Job: job, RecordID: job.RecordID}
+	done.Snap = model.Snapshot{State: model.Done, Bay: "dock", Host: "lab-b", Session: job.Session, ReadAt: job.Session, Drive: toshiba, Job: job, RecordID: job.RecordID}
 
-	offline := &hub.Bay{Key: "dev-host/sas0", Host: "dev-host", Name: "sas0", Caps: []string{"wipe", "sas"}, Version: "bayd demo", Online: false, Seen: now.Add(-3*time.Hour - 12*time.Minute)}
-	offline.Snap = model.Snapshot{State: model.Offline, Bay: "sas0", Host: "dev-host"}
+	offline := &hub.Bay{Key: "lab-b/sas0", Host: "lab-b", Name: "sas0", Caps: []string{"wipe", "sas"}, Version: "bayd demo", Online: false, Seen: now.Add(-3*time.Hour - 12*time.Minute)}
+	offline.Snap = model.Snapshot{State: model.Offline, Bay: "sas0", Host: "lab-b"}
 
 	for _, b := range []*hub.Bay{running, present, done, offline} {
 		f.bays[b.Key] = b
@@ -157,7 +157,7 @@ func advance(j *model.Job, n float64) {
 	}
 	j.MBps = float64(speed(cur, j.Phase == "verify"))
 	j.TempC = 40 + int(4*float64(j.Done)/float64(2*j.Total))
-	// About what one bayd costs on dock-host-2: a fifth of a core for AES-CTR.
+	// About what one bayd costs on a desktop CPU: a fifth of a core for AES-CTR.
 	j.CPU, j.HostCPU, j.Cores = 19+2*math.Sin(float64(cur)), 6+math.Sin(float64(cur)*0.3), 8
 	j.Load = 0.9 + 0.2*math.Sin(float64(cur)*0.1)
 	if j.MBps > 0 {

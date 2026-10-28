@@ -1,20 +1,28 @@
-# The Za Wiper hub on hub-host: zaweb, the wall of bays and the records.
-# CI (.woodpecker/zawiper.yml) builds the image on this host and copies this
-# file to /opt/zawiper/compose.yml.  By hand, from zawiper/:
+# The Za Wiper hub: zaweb, the wall of bays and the records.  It lives in
+# /opt/zawiper on the hub host, beside two files that are yours and never
+# in this repo:
 #
-#   docker build -f deploy/Dockerfile -t zawiper/zaweb:latest .
-#   cp deploy/hub/compose.yml /opt/zawiper/ && cd /opt/zawiper && docker compose up -d
+#   .env                    ZAWIPER_HOSTNAME=zawiper.example.org  (required:
+#                           the name browsers use for the page)
+#                           TZ=America/New_York                    (optional)
+#   compose.override.yml    anything about your network: a reverse proxy's
+#                           network to join, a different port.  Compose
+#                           merges it on its own.  See docs/bringup.md.
 #
-# On the host:
-#   /opt/zawiper/data   the records (in the hourly restic job, like all of
-#                       /opt).  Owned 8460:8460.
+# CI (.woodpecker/hub.yml) or `make image` builds the image on the hub host;
+# then `cp deploy/hub/compose.yml /opt/zawiper/ && cd /opt/zawiper &&
+# docker compose up -d`.
+#
+# Also on the host:
+#   /opt/zawiper/data   the records and the signing key.  Owned 8460:8460.
+#                       Back it up: it's the one thing that can't be remade.
 #   /opt/zawiper/tls    ca.crt, hub.crt, hub.key from deploy/ca.sh.  hub.key
-#                       owned 8460, mode 0400.  Never in this repo.
+#                       owned 8460, mode 0400.
 #
-# The page reaches Caddy over the gateway network, so it gets the
-# private-ranges guard and the WAF and is never published on the host.  The
-# bay links are published directly on 8461: they're mutual TLS, Caddy has
-# nothing to add, and a bay presents its client certificate to zaweb itself.
+# The page listens on 8460, published on loopback only: put a reverse proxy
+# with TLS in front of it.  The bay links listen on 8461, published on the
+# host: they're mutual TLS, and a bay presents its certificate to zaweb
+# itself, so no proxy goes in between.
 name: zawiper
 
 services:
@@ -30,21 +38,13 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     environment:
-      TZ: America/New_York
-    expose:
-      - "8460"
+      TZ: ${TZ:-UTC}
     ports:
+      - "127.0.0.1:8460:8460"
       - "8461:8461"
     volumes:
       - /opt/zawiper/data:/srv/zawiper
       - /opt/zawiper/tls:/etc/zawiper/tls:ro
     # The links listen on :8461 with /etc/zawiper/tls/{ca.crt,hub.crt,hub.key},
     # zaweb's defaults.
-    command: ["-listen", ":8460", "-records", "/srv/zawiper", "-hosts", "zawiper.example.org"]
-    networks:
-      - gateway
-
-networks:
-  gateway:
-    external: true
-    name: gateway-stack_gateway
+    command: ["-listen", ":8460", "-records", "/srv/zawiper", "-hosts", "${ZAWIPER_HOSTNAME:?set ZAWIPER_HOSTNAME in /opt/zawiper/.env}"]

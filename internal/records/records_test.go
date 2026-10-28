@@ -24,7 +24,7 @@ func record(t *testing.T, started time.Time) *Record {
 	}
 	return &Record{
 		Serial: info.Serial, Started: started, Finished: started.Add(5 * time.Second),
-		Host: "dock-host", Bay: "the bay", Software: "test",
+		Host: "lab-a", Bay: "the bay", Software: "test",
 		Drive: model.Drive{Size: info.CapacityBytes, SMART: info, Table: model.Table{Parts: []model.Part{}},
 			Capacity: &model.Capacity{Method: "hdparm -N; no DCO", Visible: info.CapacityBytes / 512, Native: info.CapacityBytes / 512}},
 		Health: smart.Assess(info),

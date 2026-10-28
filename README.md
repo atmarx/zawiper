@@ -18,7 +18,7 @@ What it won't claim: anything for flash.  An overwrite proves nothing on an SSD,
 
 ## How it scales
 
-One hub, and as many bays as you have docks.
+It runs fine as one PC with one USB dock.  The point is when it isn't: a bay in every lab that retires drives, and every record coming home to one hub, so there's one place to ask what happened to a serial, which machine wiped it, how, and when.
 
 ```
   lab A: a two-slot USB dock          lab B: a SAS HBA port
@@ -39,7 +39,7 @@ One hub, and as many bays as you have docks.
 - **A bay is a slot**: one slot of a USB dock, a USB-SAS adapter, or a port on a SAS card in IT mode.  It takes a config file, a client certificate, and a run of the installer.  Any lab with a spare machine and a dock can have one.
 - **Bays dial out, and listen on nothing.**  Each bay's link holds a mutual-TLS connection to the hub with that bay's own certificate.  A dock host needs no inbound ports.
 - **The kernel holds each bay to its drive.**  The disk side, `bayd@<bay>`, runs with systemd's `DevicePolicy=closed`.  Of every disk on the host it can open only the one in its own slot, even as root, and it has no network.  The link has the network and no devices.
-- **History follows the drive, not the dock.**  Records are filed by serial number on the hub.  A drive read in one lab and wiped in another has one history, searchable from one page.
+- **History follows the drive, not the dock.**  Records are filed by serial number on the hub.  A drive read in one lab and wiped in another has one history, searchable from one page, with the host and bay that ran each job.
 - **Everyone sees the same wall,** a page with every bay on it and the live surface map of each wipe in progress, drawn like MS-DOS DEFRAG.  There's no abort button, on purpose.  A run that anyone watching could stop is a run nobody can vouch for.
 
 ## Hard to point at the wrong disk
@@ -58,7 +58,7 @@ Today the two meet by hand (`ark stamp` at a shell).  Wipe + Load in the bay is 
 |---|---|
 | **Built** | The read-only bay, the networked fleet with kernel-held scope, the wipe with full read-back, the HPA and DCO check, the SMART diff and grade, signed records, `proof.zip`, `zverify`, the wall.  First hardware wipe 2026-10-26. |
 | **Next** | Purge through firmware sanitize, where the drive and bridge allow it.  Wipe + Load.  Certificate revocation per bay. |
-| **For institutions** | Sign-in and roles, custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for the drives that can't be wiped.  Designed in the spec, not built yet. |
+| **For institutions** | Sign-in through your identity provider, with control set per bay and visibility org-wide: each bay's config names the group allowed to run it (a Globus group, an AD group, whatever your IdP carries), while anyone signed in can watch the whole wall and look up any serial's history.  Custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for drives that can't be wiped.  Designed in the spec, not built yet: today, anyone who can reach the page can start a wipe, so keep it on a network where that's fine. |
 
 ## Try it without hardware
 
@@ -72,8 +72,9 @@ A "drive" can be a file: `truncate -s 1000204886016 /tmp/bay.img`, then run `bin
 
 ## Docs
 
-- [docs/spec.md](docs/spec.md): what it is, the decisions and why, the record format, the phases.
-- [docs/operating.md](docs/operating.md): the hub, the CA, adding a bay, and checking its scope.
+- [docs/bringup.md](docs/bringup.md): from nothing to a signed record, for anyone rolling it out.
+- [docs/operating.md](docs/operating.md): day to day.  Adding and retiring bays, checking scope, holding a bay.
+- [docs/spec.md](docs/spec.md): what it is, the decisions and why, the hardware lessons, the record format, the phases.
 
 Go, no cgo.  A dock host needs Linux with systemd and udev, `smartmontools`, `hdparm` and `util-linux`.  The hub runs as a container.
 

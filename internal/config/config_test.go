@@ -14,7 +14,7 @@ func parseString(t *testing.T, name, body string) (*Bay, error) {
 
 func TestUSBBay(t *testing.T) {
 	b, err := parseString(t, "dock-a", `
-# the caddy on dev-host, passed through by port
+# the caddy on lab-b, passed through by port
 name = "dock-a"
 usb_port = "10-1"   # as the VM's sysfs names it
 caps = "wipe"

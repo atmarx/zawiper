@@ -6,11 +6,11 @@
 #
 # It installs bayd and bayd-link, the bayd@ and bayd-link@ template units,
 # and udev rules made from /etc/zawiper/bays/*.toml, then enables
-# bayd-link@<bay> for each bay.  It also retires Phase 1 (one bayd.service,
-# /etc/zawiper/bay.toml, a local zaweb container), as on dock-host.
+# bayd-link@<bay> for each bay.  The first install needs --hub: where the
+# links dial.  It goes in /etc/zawiper/link.env, and later runs keep it.
 #
 # It never writes a bay config or a key.  Those come from the person
-# provisioning the host (zawiper/README.md).  And it never restarts a
+# provisioning the host (docs/bringup.md).  And it never restarts a
 # running bayd@: that one might be in the middle of a wipe.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -40,30 +40,8 @@ done
 BAYS=/etc/zawiper/bays
 TLS=/etc/zawiper/tls
 shopt -s nullglob
-
-# --- Phase 1, still configured and nothing to replace it -----------------
-# bay.toml can't be translated by a script that doesn't write bay configs,
-# so say what to write, and stop before changing anything.
-configs=("$BAYS"/*.toml)
-if [[ -f /etc/zawiper/bay.toml && ${#configs[@]} -eq 0 ]]; then
-    port="$(sed -n 's/^[[:space:]]*port[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' /etc/zawiper/bay.toml)"
-    smart="$(sed -n 's/^[[:space:]]*smart_type[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' /etc/zawiper/bay.toml)"
-    host="$(hostname -s)"
-    cat >&2 <<EOF
-This host still runs Phase 1: /etc/zawiper/bay.toml, and nothing in $BAYS.
-I don't write bay configs.  Pick a name for the bay, then write
-$BAYS/<name>.toml yourself:
-
-    name = "<name>"
-    usb_port = "${port:-?}"
-    smart_type = "${smart:-sat}"
-    caps = "wipe"
-
-Get its certificate (deploy/ca.sh bay $host <name>) into $TLS/ as
-ca.crt, <name>.crt and <name>.key (root, 0600), and run me again.
-Nothing has been changed.
-EOF
-    exit 1
+if [[ -z "$HUB" && ! -f /etc/zawiper/link.env ]]; then
+    die "first install: say where the hub is, e.g. --hub zawiper.example.org:8461"
 fi
 
 # --- Check the bay configs and make the rules, before touching anything --
@@ -73,34 +51,12 @@ bin/bayrules -bays "$BAYS" -check
 bin/bayrules -bays "$BAYS" -out "$gen"
 mapfile -t bays <"$gen/bays"
 
-# A Phase 1 wipe runs as a transient unit.  Don't pull bayd out from under it.
-if systemctl is-active --quiet zwipe.service; then
-    die "zwipe is running (systemctl status zwipe).  Let it finish, then run me again."
-fi
-
-# --- Retire Phase 1 -------------------------------------------------------
-if [[ -f /etc/systemd/system/bayd.service ]]; then
-    say "retiring Phase 1's bayd.service"
-    systemctl disable --now bayd.service >/dev/null 2>&1 || true
-    rm -f /etc/systemd/system/bayd.service
-fi
-if command -v docker >/dev/null &&
-    [[ "$(docker inspect -f '{{.Config.Image}}' zaweb 2>/dev/null || true)" == zawiper/zaweb:local ]]; then
-    say "removing Phase 1's zaweb container; the hub lives on hub-host now"
-    docker rm -f zaweb >/dev/null
-fi
-rm -f /usr/local/bin/zwipe /run/zawiper/bayd.sock
-if [[ -f /etc/zawiper/bay.toml ]]; then
-    say "moving /etc/zawiper/bay.toml aside to bay.toml.phase1; $BAYS replaces it"
-    mv /etc/zawiper/bay.toml /etc/zawiper/bay.toml.phase1
-fi
-
 # --- The zawiper user, directories, the sg driver -------------------------
 install -D -m 0644 deploy/sysusers.d/zawiper.conf /etc/sysusers.d/zawiper.conf
 systemd-sysusers /etc/sysusers.d/zawiper.conf
 install -d -m 0755 /etc/zawiper "$BAYS" "$TLS"
-if [[ -n "$HUB" || ! -f /etc/zawiper/link.env ]]; then
-    echo "HUB=${HUB:-zawiper.example.org:8461}" >/etc/zawiper/link.env
+if [[ -n "$HUB" ]]; then
+    echo "HUB=$HUB" >/etc/zawiper/link.env
 fi
 say "links dial $(sed -n 's/^HUB=//p' /etc/zawiper/link.env)"
 # The -sg node needs the sg driver, which isn't always loaded.
@@ -180,9 +136,5 @@ while read -r u _; do
     b="${b%.service}"
     is_bay "$b" || say "$u is still running, but bay $b has no config now.  Stop it when it's idle."
 done < <(systemctl list-units --plain --no-legend --state=active 'bayd@*.service')
-
-if [[ -d /srv/zawiper/drives ]]; then
-    say "Phase 1 records are still in /srv/zawiper.  Copy them to the hub (hub-host:/opt/zawiper/data/) and then remove them; see zawiper/README.md."
-fi
 
 systemctl --no-pager list-units --all 'bayd@*' 'bayd-link@*'

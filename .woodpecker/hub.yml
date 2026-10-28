@@ -1,21 +1,20 @@
-# Za Wiper's hub lane (docs/spec.md §8, §11).  Every push gets vet
-# and test.  On master, it also builds the hub image and brings the hub
-# stack up on hub-host.
+# Za Wiper's hub lane, for Woodpecker (docs/spec.md §8, §11).  Every push
+# that touches code gets vet and test.  On master, it also builds the hub
+# image and brings the hub up from /opt/zawiper on the hub host.
 #
 # The hub only.  bayd and bayd-link never ship from here: a key that can
-# install bayd can wipe whatever is in a bay, so bays go out by fleet play
-# or by hand (`make bay`), with a person's own sudo.  Nothing in this file
-# may build, copy, install or start them.
+# install bayd can wipe whatever is in a bay, so bays go out by hand
+# (`make bay`) or a config-management play, with a person's own sudo.
+# Nothing in this file may build, copy, install or start them.
 #
-# What it assumes:
-#   - an agent labelled host=hub-host.
-#   - this is a trusted repo in Woodpecker, so steps may mount host paths.
-#   - the image is built by hub-host's own Docker (the socket) and never
-#     pushed, so no registry and no secrets.
+# What it assumes (docs/bringup.md):
+#   - the agent on the hub host carries the label zawiper=hub.
+#   - this repo is trusted in Woodpecker, so steps may mount host paths.
+#   - the image is built by the hub host's own Docker (the socket) and
+#     never pushed, so no registry and no secrets.
 #   - /opt/zawiper/tls holds ca.crt, hub.crt and hub.key (deploy/ca.sh hub),
-#     put there by hand.  The deploy refuses without them.
-#   - the gateway-stack_gateway network exists, its Caddy container is
-#     called caddy, and the zawiper.example.org route points at zaweb:8460.
+#     and /opt/zawiper/.env sets ZAWIPER_HOSTNAME, both put there by hand.
+#     The deploy refuses without them.
 #
 # Woodpecker substitutes dollar-brace variables itself, even in comments, so
 # shell variables are written with a doubled dollar sign.
@@ -25,7 +24,7 @@ when:
       exclude: ['docs/**', '*.md']
 
 labels:
-  host: hub-host
+  zawiper: hub
 
 steps:
   test:
@@ -52,17 +51,17 @@ steps:
     when:
       - branch: master
     commands:
-      - "for f in ca.crt hub.crt hub.key; do test -s /opt/zawiper/tls/$${f} || { echo \"No /opt/zawiper/tls/$${f}.  Make it with deploy/ca.sh hub, by hand.\"; exit 1; }; done"
+      - "for f in tls/ca.crt tls/hub.crt tls/hub.key .env; do test -s /opt/zawiper/$${f} || { echo \"No /opt/zawiper/$${f}.  See docs/bringup.md.\"; exit 1; }; done"
       - mkdir -p /opt/zawiper/data
       - chown 8460:8460 /opt/zawiper/data
       - cp deploy/hub/compose.yml /opt/zawiper/compose.yml
-      - docker compose -f /opt/zawiper/compose.yml up -d --remove-orphans
-      # Running (not restarting), and answering where Caddy will ask.
+      # From the directory, so compose reads .env and compose.override.yml.
+      - cd /opt/zawiper && docker compose up -d --remove-orphans
+      # Running (not restarting), and answering on the page's name.
       - sleep 5
       - "test \"$$(docker inspect -f '{{.State.Status}}' zaweb)\" = running"
-      # Caddy's image may have busybox wget and no curl.
-      - "docker exec caddy sh -c 'if command -v curl >/dev/null; then curl -sf -o /dev/null -H \"Host: zawiper.example.org\" http://zaweb:8460/healthz; else wget -q -O /dev/null --header \"Host: zawiper.example.org\" http://zaweb:8460/healthz; fi'"
-      - echo "zaweb ${CI_COMMIT_SHA:0:7} is up on hub-host"
+      - "H=$$(sed -n 's/^ZAWIPER_HOSTNAME=//p' /opt/zawiper/.env); docker run --rm --network container:zaweb busybox:1.36 wget -q -O /dev/null --header \"Host: $${H}\" http://127.0.0.1:8460/healthz"
+      - echo "zaweb ${CI_COMMIT_SHA:0:7} is up"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /opt/zawiper:/opt/zawiper

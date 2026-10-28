@@ -80,7 +80,7 @@ func TestReadRefusals(t *testing.T) {
 		// A drive that doesn't answer, or disagrees about its size, gets no
 		// further reads: no peek.
 		"no smart": {func(f *fake) { f.smart = []byte(`{"smartctl":{"exit_status":2}}`) }, "didn't answer SMART", false},
-		// dock-host-2's dock has reported 4.14 GB in both slots.
+		// A two-slot ASM1156 dock has reported 4.14 GB in both slots.
 		"placeholder size": {func(f *fake) { f.devs[0].Size = 4140000000 }, "placeholder", false},
 		"HPA": {func(f *fake) {
 			f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
@@ -181,7 +181,7 @@ func TestSysDevicesOnlyThePort(t *testing.T) {
 		os.MkdirAll(block, 0o755)
 		os.Symlink(dir, filepath.Join(block, name))
 	}
-	// The real paths on dock-host, 2026-10-23.
+	// The real paths on lab-a, 2026-10-23.
 	mk("sda", "pci0000:00/0000:00:1e.0/0000:05:04.0/0000:09:0a.0/virtio4/host1/target1:0:0/1:0:0:9", "16777216")
 	mk("sdb", "pci0000:00/0000:00:1e.0/0000:05:04.0/0000:09:01.0/virtio3/host0/target0:0:0/0:0:0:0", "134217728")
 	mk("sdc", "pci0000:00/0000:00:1e.0/0000:05:02.0/0000:07:1b.0/usb10/10-1/10-1:1.0/host8/target8:0:0/8:0:0:0", "1953525168")

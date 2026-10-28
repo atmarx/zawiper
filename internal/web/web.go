@@ -142,7 +142,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 // hosts refuses any Host we don't serve.  That closes DNS rebinding: a page
-// on evil.example resolving to 192.0.2.18 still says Host: evil.example.
+// on evil.example resolving to the hub's address still says Host: evil.example.
 func (s *Server) hosts(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(s.Hosts) > 0 && !contains(s.Hosts, r.Host) {

@@ -12,7 +12,6 @@
 # re-inserted drive turning up with new numbers.
 [Unit]
 Description=Za Wiper bay %i, disk side
-Documentation=https://git.example.org/atmarx/the-ark/src/branch/master/docs/za-wiper.md
 ConditionPathExists=/etc/zawiper/bays/%i.toml
 # A restarting disk side must never give up: the drive is still in the bay.
 StartLimitIntervalSec=0

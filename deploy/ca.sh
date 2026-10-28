@@ -12,7 +12,7 @@
 # its password each time it signs.  Certificates and their (unencrypted)
 # keys go to OUT_DIR, default ./zawiper-certs, one folder per destination:
 #
-#   hub/          ca.crt hub.crt hub.key   -> hub-host:/opt/zawiper/tls/
+#   hub/          ca.crt hub.crt hub.key   -> the hub host's /opt/zawiper/tls/
 #   <host>/       ca.crt <name>.crt <name>.key -> <host>:/etc/zawiper/tls/
 #
 # Neither directory may be inside a git work tree, so no key gets committed
@@ -108,9 +108,10 @@ hub)
     not_in_git "$OUT_DIR"
     dns="$1"
     shift
-    # The name the bays dial, hub-host by name and by address, and any extras.
+    # The name the bays dial, then any others they might: the hub host by
+    # name and by address, the page's name.
     sans=()
-    for s in "$dns" zawiper.example.org hub-host 192.0.2.10 "$@"; do
+    for s in "$dns" "$@"; do
         [[ " ${sans[*]} " == *" $s "* ]] || sans+=("$s")
     done
     args=()
@@ -120,7 +121,7 @@ hub)
     sign "$SERVER_TEMPLATE" "$dns" "$out/hub.crt" "$out/hub.key" "${args[@]}"
     cp "$ROOT_CRT" "$out/ca.crt"
     echo "Hub certificate for ${sans[*]} in $out."
-    echo "On hub-host: /opt/zawiper/tls/, hub.key owned 8460 and mode 0400."
+    echo "On the hub host: /opt/zawiper/tls/, hub.key owned 8460 and mode 0400."
     ;;
 bay)
     [[ $# -eq 2 ]] || usage
