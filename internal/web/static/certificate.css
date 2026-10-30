@@ -116,6 +116,11 @@ table.health tr.worse td { color: var(--red); background: var(--red-bg); font-we
 .sheet .badge-notes { color: var(--p-notes); background: var(--p-notes-bg); }
 .sheet .badge-fail { color: var(--p-red); background: var(--p-red-bg); }
 .sheet .badge-none { color: var(--p-muted); background: none; }
+.sheet .pill { font-size: .8em; cursor: auto; }
+.sheet .pill-fail { color: #fff; background: var(--p-red); border-color: var(--p-red); }
+.sheet .pill-drive { color: var(--p-notes); background: none; }
+.sheet .pill-other { color: var(--p-muted); background: none; }
+.sheet .pill-more { color: var(--p-muted); }
 
 /* -- The label: reads through tape without unfolding. -- */
 

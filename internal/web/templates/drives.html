@@ -17,7 +17,7 @@
       <td>{{.Model}}</td>
       <td class="num">{{size .Capacity}}</td>
       <td>{{when .LastSeen}}</td>
-      <td>{{.LastKind}} {{template "badge" .LastGrade}}</td>
+      <td>{{.LastKind}} {{template "badge" .LastGrade}}{{template "pills" (pills .LastFindings 3)}}</td>
       <td class="num">{{.Records}}</td>
     </tr>
   {{end}}

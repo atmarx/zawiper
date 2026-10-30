@@ -55,7 +55,46 @@ type Server struct {
 	lastReread map[string]time.Time // per bay key
 }
 
+// pillSet is the pills beside a grade: fails first, then the drive's own
+// notes, then whatever isn't the drive's.  More counts what didn't fit.
+type pillSet struct {
+	Shown []smart.Finding
+	More  int
+}
+
+// pills orders findings for display and keeps at most max of them (0: all).
+func pills(fs []smart.Finding, max int) pillSet {
+	rank := func(f smart.Finding) int {
+		switch {
+		case f.Fail:
+			return 0
+		case f.About == smart.Drive:
+			return 1
+		}
+		return 2
+	}
+	s := slices.Clone(fs)
+	slices.SortStableFunc(s, func(a, b smart.Finding) int { return rank(a) - rank(b) })
+	if max > 0 && len(s) > max {
+		return pillSet{s[:max], len(s) - max}
+	}
+	return pillSet{Shown: s}
+}
+
+// pillKind is a pill's look: red and filled for a fail, amber and outlined
+// for a note against the drive, cyan and dashed for anything that isn't.
+func pillKind(f smart.Finding) string {
+	switch {
+	case f.Fail:
+		return "fail"
+	case f.About == smart.Drive:
+		return "drive"
+	}
+	return "other"
+}
+
 var funcs = template.FuncMap{
+	"pillkind": pillKind,
 	"size":     records.Size,
 	"surface":  records.Surface,
 	"legend":   records.SurfaceLegend,
@@ -93,6 +132,7 @@ var funcs = template.FuncMap{
 		}
 		return "none"
 	},
+	"pills": pills,
 	"tail": func(s string) string { // the last six, the part people read aloud
 		if len(s) <= 6 {
 			return ""

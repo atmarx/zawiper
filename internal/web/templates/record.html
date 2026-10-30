@@ -34,7 +34,7 @@
   {{end}}
 
   <section>
-    <h2>Health {{template "badge" .Health.Grade}}</h2>
+    <h2>Health {{template "badge" .Health.Grade}}{{template "pills" (pills .Health.Findings 0)}}</h2>
     {{with .Drive.SMART}}
     <p>The drive's own verdict: {{if .Passed}}{{if deref .Passed}}PASSED{{else}}FAILING{{end}}{{else}}didn't say{{end}}.  Power-on {{commas .PowerOnHours}} hours, {{commas .PowerCycles}} power cycles, {{.TempC}} °C.</p>
     {{end}}
@@ -126,7 +126,7 @@
       <div class="lbl-model">{{.Model}} · {{size .R.Drive.Size}}</div>
       <div class="lbl-verdict">{{.Verdict}}</div>
       {{if .ForSale}}
-      <div class="lbl-grade">{{template "badge" .R.Health.Grade}}</div>
+      <div class="lbl-grade">{{template "badge" .R.Health.Grade}}{{template "pills" (pills .R.Health.Findings 3)}}</div>
       {{else}}
       <p class="lbl-why">{{.Why}}</p>
       {{end}}
@@ -170,7 +170,7 @@
         {{range .Legend}}{{if .Count}}<li><i class="chip {{.Class}}"></i>{{.Label}} <span class="muted">{{commas .Count}}</span></li>{{end}}{{end}}
       </ul>
       <p class="fine">One cell is {{size .R.Wipe.Block}}, written then read back, front of the drive at top left.  Write {{pass .R.Wipe false}}; verify {{pass .R.Wipe true}}.</p>
-      <h3>Health before and after <span class="q-grade">{{template "badge" .R.Health.Grade}}</span></h3>
+      <h3>Health before and after <span class="q-grade">{{template "badge" .R.Health.Grade}}{{template "pills" (pills .R.Health.Findings 0)}}</span></h3>
       {{template "cert-health" .}}
       {{with .R.Health.Notes}}<ul class="fine notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
     </section>

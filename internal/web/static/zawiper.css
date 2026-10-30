@@ -15,6 +15,8 @@
   --ok: #2e6b34;
   --ok-bg: #dcebd9;
   --link: #1d4f91;
+  --info: #1f6478;
+  --info-bg: #dcecf1;
   --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light dark;
@@ -34,12 +36,15 @@
     --ok: #79c07f;
     --ok-bg: #16291a;
     --link: #8db8f2;
+    --info: #74c6dd;
+    --info-bg: #10282f;
   }
 }
 :root[data-theme="dark"] {
   --bg: #141311; --surface: #1c1a17; --ink: #ebe5d8; --muted: #a39b8b; --line: #36322b;
   --hazard: #f0bd1c; --hazard-bg: #3a2f0c; --hazard-ink: #f6dd8c;
   --red: #ef6b5e; --red-bg: #3d1714; --ok: #79c07f; --ok-bg: #16291a; --link: #8db8f2;
+  --info: #74c6dd; --info-bg: #10282f;
 }
 
 * { box-sizing: border-box; }
@@ -127,6 +132,18 @@ main { max-width: 52rem; margin: 0 auto; padding: 1.25rem 16px 3rem; }
 .badge-notes { color: var(--hazard-ink); background: var(--hazard-bg); }
 .badge-fail { color: var(--red); background: var(--red-bg); }
 .badge-none { color: var(--muted); }
+
+/* Pills: a finding's tag and value (spec §6.4).  The border tells the
+   severity without color, for printouts: filled, solid, dashed. */
+.pill {
+  display: inline-block; font-family: var(--mono); font-size: .72rem; font-weight: 600;
+  padding: 0 .45em; margin-left: .3em; border: 1.5px solid currentColor; border-radius: 999px;
+  white-space: nowrap; vertical-align: .08em; cursor: help;
+}
+.pill-fail { color: var(--surface); background: var(--red); border-color: var(--red); }
+.pill-drive { color: var(--hazard-ink); background: var(--hazard-bg); }
+.pill-other { color: var(--info); background: var(--info-bg); border-style: dashed; }
+.pill-more { color: var(--muted); border-style: dotted; }
 
 .notes { padding-left: 1.2rem; }
 .found-line { font-weight: 600; }

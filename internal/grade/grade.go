@@ -4,6 +4,7 @@ package grade
 
 import (
 	"fmt"
+	"strings"
 
 	"zawiper/internal/records"
 	"zawiper/internal/smart"
@@ -15,31 +16,26 @@ import (
 // when the wipe never started.
 func Wipe(before, after *smart.Info, res *wipe.Result) smart.Health {
 	h := fromSMART(before, after)
-	note := func(s string) {
-		h.Notes = append(h.Notes, s)
-		if h.Grade == smart.Pass {
-			h.Grade = smart.Notes
-		}
-	}
-	fail := func(s string) {
-		h.Notes = append(h.Notes, s)
-		h.Grade = smart.Fail
-	}
 	if res == nil {
-		note("The wipe never started, so this says nothing about the drive's surface.")
+		h.Add(smart.Finding{Tag: "PARTIAL", Value: "not started", About: smart.Job,
+			Text: "The wipe never started, so this says nothing about the drive's surface."})
 		return h
 	}
 	if res.Bad > 0 {
-		fail(fmt.Sprintf("%s bytes didn't read back as written.", records.Commas(res.Bad)))
+		h.Add(smart.Finding{Tag: "BAD", Value: records.Size(res.Bad), Fail: true, About: smart.Drive,
+			Text: fmt.Sprintf("%s bytes didn't read back as written.", records.Commas(res.Bad))})
 	}
 	switch {
 	case res.Alarm != "":
-		fail("The drive's identity changed mid-job: " + res.Alarm)
+		h.Add(smart.Finding{Tag: "IDENTITY", Fail: true, About: smart.Job,
+			Text: "The drive's identity changed mid-job: " + res.Alarm})
 	case res.Aborted != "":
-		note("The wipe was " + res.Aborted + ", so it proves nothing about the rest of the drive.")
+		h.Add(smart.Finding{Tag: "PARTIAL", Value: res.Aborted, About: smart.Job,
+			Text: "The wipe was " + res.Aborted + ", so it proves nothing about the rest of the drive."})
 	}
 	if slow := records.SlowLine(res); slow != "none" {
-		note("Slow blocks: " + slow + ".")
+		h.Add(smart.Finding{Tag: "SLOW", Value: fmt.Sprint(strings.Count(slow, "#")), About: smart.Drive,
+			Text: "Slow blocks: " + slow + "."})
 	}
 	return h
 }
@@ -49,26 +45,26 @@ func Wipe(before, after *smart.Info, res *wipe.Result) smart.Health {
 func fromSMART(before, after *smart.Info) smart.Health {
 	switch {
 	case before == nil && after == nil:
-		return smart.Health{Grade: smart.Notes, Notes: []string{"No SMART readings at all, so the drive's own view is missing."}}
+		h := smart.Health{Grade: smart.Pass}
+		h.Add(smart.Finding{Tag: "NO-SMART", About: smart.Bridge, Text: "No SMART readings at all, so the drive's own view is missing."})
+		return h
 	case after == nil:
 		h := smart.Assess(before)
-		h.Notes = append(h.Notes, "SMART couldn't be read after the wipe, so nothing could be compared.  This grade is from before it.")
-		if h.Grade == smart.Pass {
-			h.Grade = smart.Notes
-		}
+		h.Add(smart.Finding{Tag: "NO-SMART", Value: "after", About: smart.Bridge,
+			Text: "SMART couldn't be read after the wipe, so nothing could be compared.  This grade is from before it."})
 		return h
 	case before == nil:
 		before = after
 	}
 	h := smart.Assess(after)
-	fails, notes := smart.Rising(before, after)
-	h.Notes = append(h.Notes, notes...)
-	if len(notes) > 0 && h.Grade == smart.Pass {
-		h.Grade = smart.Notes
-	}
-	if len(fails) > 0 {
-		h.Notes = append(h.Notes, fails...)
-		h.Grade = smart.Fail
+	// Notes before fails, as the sentences have always run.
+	rising := smart.Rising(before, after)
+	for _, fail := range []bool{false, true} {
+		for _, f := range rising {
+			if f.Fail == fail {
+				h.Add(f)
+			}
+		}
 	}
 	return h
 }

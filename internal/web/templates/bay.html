@@ -41,7 +41,7 @@
     <p class="lede"><strong>Wiped and verified.</strong>  Every block was written, then read back and compared.</p>
     {{with .Live}}
     <dl class="headline">
-      {{with $.Snap.Drive}}<div><dt>Health</dt><dd>{{template "badge" .Health.Grade}}</dd></div>{{end}}
+      {{with $.Snap.Drive}}<div><dt>Health</dt><dd>{{template "badge" .Health.Grade}}{{template "pills" (pills .Health.Findings 3)}}</dd></div>{{end}}
       <div><dt>Read back</dt><dd>{{.ReadBack}}</dd></div>
       <div><dt>Took</dt><dd>{{if .Took}}{{.Took}}{{else}}—{{end}}</dd></div>
       <div><dt>Average</dt><dd>{{if .Average}}{{.Average}}{{else}}—{{end}}</dd></div>
@@ -144,7 +144,7 @@
 
   <dl class="facts">
     {{if .SMART}}
-    <dt>Health</dt><dd>{{template "badge" .Health.Grade}}</dd>
+    <dt>Health</dt><dd>{{template "badge" .Health.Grade}}{{template "pills" (pills .Health.Findings 0)}}</dd>
     <dt>Type</dt><dd>{{rotation .SMART.RotationRate}}</dd>
     <dt>Power-on</dt><dd>{{commas .SMART.PowerOnHours}} h · {{commas .SMART.PowerCycles}} cycles</dd>
     <dt>Temp</dt><dd>{{.SMART.TempC}} °C</dd>

@@ -55,7 +55,9 @@ type Summary struct {
 	LastSeen  time.Time   `json:"last_seen"`
 	LastKind  string      `json:"last_kind"`
 	LastGrade smart.Grade `json:"last_grade"`
-	Records   int         `json:"records"`
+	// LastFindings are the pills beside LastGrade.
+	LastFindings []smart.Finding `json:"last_findings,omitempty"`
+	Records      int             `json:"records"`
 }
 
 // Files a record folder may hold, and the only names zaweb will serve.
@@ -162,7 +164,7 @@ func (s *Store) updateSummary(r *Record) error {
 	if r.Drive.SMART != nil {
 		sum.Model, sum.Family, sum.Capacity = r.Drive.SMART.Model, r.Drive.SMART.Family, r.Drive.SMART.CapacityBytes
 	}
-	sum.LastSeen, sum.LastKind, sum.LastGrade = r.Finished, r.Kind, r.Health.Grade
+	sum.LastSeen, sum.LastKind, sum.LastGrade, sum.LastFindings = r.Finished, r.Kind, r.Health.Grade, r.Health.Findings
 	recs, _ := s.Records(r.Serial)
 	sum.Records = len(recs)
 	b, _ := json.MarshalIndent(sum, "", "  ")

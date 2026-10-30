@@ -13,7 +13,7 @@
   {{with .}}
   <ul class="recent-list">
   {{range .}}
-    <li><a href="/drives/{{dir .Serial}}">{{template "serial" .Serial}}</a> <span class="muted">{{.Model}} · {{size .Capacity}}</span> {{template "badge" .LastGrade}}</li>
+    <li><a href="/drives/{{dir .Serial}}">{{template "serial" .Serial}}</a> <span class="muted">{{.Model}} · {{size .Capacity}}</span> {{template "badge" .LastGrade}}{{template "pills" (pills .LastFindings 3)}}</li>
   {{end}}
   </ul>
   {{end}}
@@ -22,6 +22,8 @@
 {{end}}
 
 {{define "badge"}}<span class="badge badge-{{grade .}}">{{if eq (grade .) "pass"}}✓{{else if eq (grade .) "notes"}}△{{else if eq (grade .) "fail"}}✕{{end}} {{if .}}{{.}}{{else}}NO GRADE{{end}}</span>{{end}}
+
+{{define "pills"}}{{range .Shown}} <span class="pill pill-{{pillkind .}}" title="{{.Text}}">{{.Tag}}{{with .Value}} {{.}}{{end}}</span>{{end}}{{with .More}} <span class="pill pill-more" title="{{.}} more on the record">+{{.}}</span>{{end}}{{end}}
 
 {{define "found"}}
 <p class="found-line">{{found .}}</p>

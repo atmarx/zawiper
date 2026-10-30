@@ -236,6 +236,41 @@ func TestPages(t *testing.T) {
 	}
 }
 
+// Every grade carries its pills: the drive list, the drive's history, the
+// record, and record.md as text.
+func TestPills(t *testing.T) {
+	_, h, _ := setup(t)
+	pill := `<span class="pill pill-drive" title="Airflow_Temperature_Cel crossed its threshold in the past`
+	for _, path := range []string{"/drives", "/drives/9VPAX9NA", "/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect"} {
+		wants(t, path, get(h, path).Body.String(), pill, "PAST Airflow_Temperature_Cel</span>")
+	}
+	wants(t, "record.md", get(h, "/drives/9VPAX9NA/2026-10-23T14-02-11Z-inspect/record.md").Body.String(),
+		"- `PAST Airflow_Temperature_Cel` Airflow_Temperature_Cel crossed")
+}
+
+func TestPillOrder(t *testing.T) {
+	fs := []smart.Finding{
+		{Tag: "CRC", About: smart.Bridge},
+		{Tag: "REALLOC", About: smart.Drive},
+		{Tag: "PENDING", About: smart.Drive, Fail: true},
+		{Tag: "HOT", About: smart.Drive},
+	}
+	p := pills(fs, 3)
+	var got []string
+	for _, f := range p.Shown {
+		got = append(got, f.Tag+":"+pillKind(f))
+	}
+	if strings.Join(got, " ") != "PENDING:fail REALLOC:drive HOT:drive" || p.More != 1 {
+		t.Errorf("pills %v, %d more", got, p.More)
+	}
+	if p := pills(fs, 0); len(p.Shown) != 4 || p.More != 0 {
+		t.Errorf("all: %d shown, %d more", len(p.Shown), p.More)
+	}
+	if fs[0].Tag != "CRC" {
+		t.Error("pills reordered the record's own findings")
+	}
+}
+
 func TestWall(t *testing.T) {
 	f, h, drv := setup(t)
 	f.set("lab-a/bay2", func(b *hub.Bay) {

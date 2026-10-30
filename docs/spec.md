@@ -196,9 +196,11 @@ Thresholds live in a config file, with the reason next to each one.
 
 | Pill | Severity | Drawn as | Tags |
 |---|---|---|---|
-| red | fail | filled | `PENDING 0→6` (any watched count rising), `BAD` (bytes that didn't read back), `FAILING` (the drive's own verdict), `THRESH <attr>` (at its threshold now), `SELFTEST`, `IDENTITY` |
-| amber | a note against the drive | outlined | `REALLOC 8`, `PENDING 2`, `UNCORR 1`, `HOT 52 °C`, `SLOW 3 regions`, `ERRLOG 12`, `PAST <attr>`, `LATENCY 2.1 s` |
-| cyan | not the drive | dashed | `CRC 14` (cable or bridge), `BRIDGE` (SMART partly blocked), `PARTIAL` (the job stopped), `NO-SMART`, `NO-STATUS` |
+| red | fail | filled | `PENDING 0→6` (any watched count but CRC rising), `BAD 4.10 KB` (bytes that didn't read back), `FAILING` (the drive's own verdict), `THRESH <attr>` (at its threshold now), `IDENTITY` (a different drive answered mid-job); to come, `SELFTEST` (our own run failed) |
+| amber | a note against the drive | solid | `REALLOC 8`, `PENDING 2`, `OFFLINE-UNC 1`, `UNCORR 1`, `HOT 52 °C`, `SLOW 3`, `ERRLOG 12` or `12→14`, `PAST <attr>`, `SELFTEST log`; to come, `LATENCY 2.1 s` |
+| cyan | not the drive | dashed | `CRC 14` or `1→3` (cable or bridge), `BRIDGE` (SMART partly blocked), `NO-SMART`, `NO-STATUS`, `PARTIAL <how>`, `ENDED <state>`, `INTERRUPTED` |
+
+Built 2026-10-29: every note `bayd` writes has its finding, and the grade comes out of them exactly as before.  `SLOW` counts blocks until §6.6 groups them into regions.
 
 The shapes carry the severity on a black-and-white printout.  The wall card shows three pills and a count of the rest.  On the hub, tags are what the drives page filters on: every rising count, every `SLOW` from one bay, every `CRC` through one dock.
 

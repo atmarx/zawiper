@@ -76,8 +76,14 @@ func MarkdownSealed(r *Record, seal *Seal) string {
 		w("The drive's own verdict: %s.  Power-on %s hours, %s power cycles, %d °C.\n\n",
 			status, Commas(int64(s.PowerOnHours)), Commas(int64(s.PowerCycles)), s.TempC)
 	}
-	for _, n := range r.Health.Notes {
-		w("- %s\n", n)
+	if fs := r.Health.Findings; len(fs) == len(r.Health.Notes) {
+		for _, f := range fs {
+			w("- `%s` %s\n", strings.TrimSpace(f.Tag+" "+f.Value), f.Text)
+		}
+	} else {
+		for _, n := range r.Health.Notes {
+			w("- %s\n", n)
+		}
 	}
 	if len(r.Health.Notes) > 0 {
 		w("\n")

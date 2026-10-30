@@ -193,20 +193,66 @@ const (
 type Health struct {
 	Grade Grade    `json:"grade"`
 	Notes []string `json:"notes"`
+	// Findings are the notes as tags, for the pills beside the grade (spec
+	// §6.4).  Each one's Text is also in Notes, which records signed
+	// before findings existed carry alone.
+	Findings []Finding `json:"findings,omitempty"`
+}
+
+// About is whose a finding is.  A buyer reads a note against the drive
+// differently from one against the cable, the bridge or the job.
+type About string
+
+const (
+	Drive  About = "drive"
+	Bridge About = "bridge"
+	Job    About = "job"
+)
+
+// Finding is one note behind a grade.  Value is what was measured, never a
+// score: "8", "52 °C", "0→6" for a count that rose during the job.
+type Finding struct {
+	Tag   string `json:"tag"`
+	Value string `json:"value,omitempty"`
+	Fail  bool   `json:"fail,omitempty"`
+	About About  `json:"about"`
+	Text  string `json:"text"`
+}
+
+// Add files a finding.  A failing one fails the grade; any other takes a
+// PASS down to PASS WITH NOTES.
+func (h *Health) Add(f Finding) {
+	h.Findings = append(h.Findings, f)
+	h.Notes = append(h.Notes, f.Text)
+	switch {
+	case f.Fail:
+		h.Grade = Fail
+	case h.Grade == Pass:
+		h.Grade = Notes
+	}
+}
+
+// Lead puts a finding first, leaving the grade alone: how a job ended goes
+// above what the grade found.
+func (h *Health) Lead(f Finding) {
+	h.Findings = append([]Finding{f}, h.Findings...)
+	h.Notes = append([]string{f.Text}, h.Notes...)
 }
 
 // Counts that should be zero on a healthy drive.  Non-zero is a note, not a
 // failure: an inspect can't tell a stable old scar from a drive that's dying.
 // Only a wipe (before/after) can see a count rising.
 var watched = []struct {
-	id   int
-	what string
+	id    int
+	tag   string
+	about About
+	what  string
 }{
-	{5, "reallocated sectors"},
-	{197, "sectors pending reallocation"},
-	{198, "offline-uncorrectable sectors"},
-	{187, "reported-uncorrectable errors"},
-	{199, "interface CRC errors (usually the cable or the bridge, not the platters)"},
+	{5, "REALLOC", Drive, "reallocated sectors"},
+	{197, "PENDING", Drive, "sectors pending reallocation"},
+	{198, "OFFLINE-UNC", Drive, "offline-uncorrectable sectors"},
+	{187, "UNCORR", Drive, "reported-uncorrectable errors"},
+	{199, "CRC", Bridge, "interface CRC errors (usually the cable or the bridge, not the platters)"},
 }
 
 // HotC is where a drive in a closed caddy has started cooking.
@@ -215,47 +261,40 @@ const HotC = 50
 // Assess grades a drive from SMART alone.
 func Assess(i *Info) Health {
 	h := Health{Grade: Pass}
-	note := func(s string, a ...any) {
-		h.Notes = append(h.Notes, fmt.Sprintf(s, a...))
-		if h.Grade == Pass {
-			h.Grade = Notes
-		}
-	}
-	fail := func(s string, a ...any) {
-		h.Notes = append(h.Notes, fmt.Sprintf(s, a...))
-		h.Grade = Fail
+	add := func(fail bool, about About, tag, value, s string, a ...any) {
+		h.Add(Finding{Tag: tag, Value: value, Fail: fail, About: about, Text: fmt.Sprintf(s, a...)})
 	}
 
 	if (i.Passed != nil && !*i.Passed) || i.ExitStatus&ExitFailing != 0 {
-		fail("The drive's own health check says FAILING.")
+		add(true, Drive, "FAILING", "", "The drive's own health check says FAILING.")
 	}
 	for _, a := range i.Attrs {
 		switch a.WhenFailed {
 		case "now":
-			fail("%s is at or below its failure threshold right now.", a.Name)
+			add(true, Drive, "THRESH", a.Name, "%s is at or below its failure threshold right now.", a.Name)
 		case "past":
-			note("%s crossed its threshold in the past (worst %d, threshold %d).", a.Name, a.Worst, a.Thresh)
+			add(false, Drive, "PAST", a.Name, "%s crossed its threshold in the past (worst %d, threshold %d).", a.Name, a.Worst, a.Thresh)
 		}
 	}
 	for _, w := range watched {
 		if a, ok := i.Attr(w.id); ok && a.Raw > 0 {
-			note("%d %s.", a.Raw, w.what)
+			add(false, w.about, w.tag, fmt.Sprint(a.Raw), "%d %s.", a.Raw, w.what)
 		}
 	}
 	if i.TempC >= HotC {
-		note("Running hot: %d °C.", i.TempC)
+		add(false, Drive, "HOT", fmt.Sprintf("%d °C", i.TempC), "Running hot: %d °C.", i.TempC)
 	}
 	if i.ErrorLogCount > 0 {
-		note("%d entries in the drive's error log.", i.ErrorLogCount)
+		add(false, Drive, "ERRLOG", fmt.Sprint(i.ErrorLogCount), "%d entries in the drive's error log.", i.ErrorLogCount)
 	}
 	if i.ExitStatus&ExitSelfTestErrs != 0 {
-		note("The self-test log records errors.")
+		add(false, Drive, "SELFTEST", "log", "The self-test log records errors.")
 	}
 	if i.ExitStatus&ExitCmdFailed != 0 {
-		note("Some SMART commands failed through this bridge, so the picture may be incomplete.")
+		add(false, Bridge, "BRIDGE", "", "Some SMART commands failed through this bridge, so the picture may be incomplete.")
 	}
 	if i.Passed == nil {
-		note("The drive didn't report an overall health status.")
+		add(false, Bridge, "NO-STATUS", "", "The drive didn't report an overall health status.")
 	}
 	return h
 }
@@ -264,22 +303,20 @@ func Assess(i *Info) Health {
 // climbs while every sector is written and read back is a drive getting
 // worse under load: that fails it, except for CRC errors, which belong to
 // the cable or the bridge.
-func Rising(before, after *Info) (fails, notes []string) {
+func Rising(before, after *Info) []Finding {
+	var fs []Finding
 	for _, w := range watched {
 		a, ok1 := before.Attr(w.id)
 		b, ok2 := after.Attr(w.id)
 		if !ok1 || !ok2 || b.Raw <= a.Raw {
 			continue
 		}
-		msg := fmt.Sprintf("%s rose during the wipe, %d → %d.", w.what, a.Raw, b.Raw)
-		if w.id == 199 {
-			notes = append(notes, msg)
-		} else {
-			fails = append(fails, msg)
-		}
+		fs = append(fs, Finding{Tag: w.tag, Value: fmt.Sprintf("%d→%d", a.Raw, b.Raw), Fail: w.about == Drive, About: w.about,
+			Text: fmt.Sprintf("%s rose during the wipe, %d → %d.", w.what, a.Raw, b.Raw)})
 	}
 	if after.ErrorLogCount > before.ErrorLogCount {
-		notes = append(notes, fmt.Sprintf("The drive's error log grew during the wipe, %d → %d entries.", before.ErrorLogCount, after.ErrorLogCount))
+		fs = append(fs, Finding{Tag: "ERRLOG", Value: fmt.Sprintf("%d→%d", before.ErrorLogCount, after.ErrorLogCount), About: Drive,
+			Text: fmt.Sprintf("The drive's error log grew during the wipe, %d → %d entries.", before.ErrorLogCount, after.ErrorLogCount)})
 	}
-	return fails, notes
+	return fs
 }

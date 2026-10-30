@@ -191,7 +191,8 @@ func (b *Bay) finish(j *job, end *ending, res *wipe.Result) {
 	b.setPhase(j, "record")
 	health := grade.Wipe(before, after, res)
 	if end != nil {
-		health.Notes = append([]string{fmt.Sprintf("The job ended %s: %s", end.state, end.evidence)}, health.Notes...)
+		health.Lead(smart.Finding{Tag: "ENDED", Value: string(end.state), About: smart.Job,
+			Text: fmt.Sprintf("The job ended %s: %s", end.state, end.evidence)})
 	}
 	drive := *j.read.Drive
 	if after != nil {
@@ -684,7 +685,7 @@ func (b *Bay) saveInterrupted() error {
 	}
 	rec.Wipe = partial(live, block)
 	rec.Health = grade.Wipe(rec.Before, nil, rec.Wipe)
-	rec.Health.Notes = append([]string{interruptedNote}, rec.Health.Notes...)
+	rec.Health.Lead(smart.Finding{Tag: "INTERRUPTED", About: smart.Job, Text: interruptedNote})
 	rec.Drive.Health = rec.Health
 	return b.Spool.SaveInterrupted(rec, raw)
 }

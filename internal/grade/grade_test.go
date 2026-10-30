@@ -40,23 +40,44 @@ func TestWipe(t *testing.T) {
 		res           *wipe.Result
 		grade         smart.Grade
 		note          string
+		pill          string // tag and value of the finding behind the note
+		about         smart.About
 	}{
-		"clean":          {healthy(0, 0), healthy(0, 0), clean(), smart.Pass, ""},
-		"stable scar":    {healthy(8, 0), healthy(8, 0), clean(), smart.Notes, "8 reallocated sectors"},
-		"rising":         {healthy(8, 0), healthy(40, 0), clean(), smart.Fail, "rose during the wipe, 8 → 40"},
-		"rising crc":     {healthy(0, 1), healthy(0, 3), clean(), smart.Notes, "interface CRC"},
-		"bad bytes":      {healthy(0, 0), healthy(0, 0), bad, smart.Fail, "4,096 bytes didn't read back"},
-		"aborted":        {healthy(0, 0), healthy(0, 0), aborted, smart.Notes, "proves nothing"},
-		"alarm":          {healthy(0, 0), healthy(0, 0), alarm, smart.Fail, "identity changed mid-job: the drive now says serial Z1D2"},
-		"slow block":     {healthy(0, 0), healthy(0, 0), slow, smart.Notes, "Slow blocks: #21."},
-		"no smart after": {healthy(0, 0), nil, clean(), smart.Notes, "couldn't be read after the wipe"},
-		"never started":  {healthy(0, 0), healthy(0, 0), nil, smart.Notes, "never started"},
+		"clean":          {healthy(0, 0), healthy(0, 0), clean(), smart.Pass, "", "", ""},
+		"stable scar":    {healthy(8, 0), healthy(8, 0), clean(), smart.Notes, "8 reallocated sectors", "REALLOC 8", smart.Drive},
+		"rising":         {healthy(8, 0), healthy(40, 0), clean(), smart.Fail, "rose during the wipe, 8 → 40", "REALLOC 8→40", smart.Drive},
+		"rising crc":     {healthy(0, 1), healthy(0, 3), clean(), smart.Notes, "interface CRC", "CRC 1→3", smart.Bridge},
+		"bad bytes":      {healthy(0, 0), healthy(0, 0), bad, smart.Fail, "4,096 bytes didn't read back", "BAD 4.10 KB", smart.Drive},
+		"aborted":        {healthy(0, 0), healthy(0, 0), aborted, smart.Notes, "proves nothing", "PARTIAL stopped during the verify pass", smart.Job},
+		"alarm":          {healthy(0, 0), healthy(0, 0), alarm, smart.Fail, "identity changed mid-job: the drive now says serial Z1D2", "IDENTITY", smart.Job},
+		"slow block":     {healthy(0, 0), healthy(0, 0), slow, smart.Notes, "Slow blocks: #21.", "SLOW 1", smart.Drive},
+		"no smart after": {healthy(0, 0), nil, clean(), smart.Notes, "couldn't be read after the wipe", "NO-SMART after", smart.Bridge},
+		"never started":  {healthy(0, 0), healthy(0, 0), nil, smart.Notes, "never started", "PARTIAL not started", smart.Job},
 	}
 	for name, c := range cases {
 		h := Wipe(c.before, c.after, c.res)
 		notes := strings.Join(h.Notes, " | ")
 		if h.Grade != c.grade || !strings.Contains(notes, c.note) {
 			t.Errorf("%s: %s, notes %q", name, h.Grade, notes)
+		}
+		// Every sentence has its pill, in the same order.
+		if len(h.Findings) != len(h.Notes) {
+			t.Fatalf("%s: %d findings for %d notes", name, len(h.Findings), len(h.Notes))
+		}
+		found := c.pill == ""
+		for i, f := range h.Findings {
+			if f.Text != h.Notes[i] {
+				t.Errorf("%s: finding %d says %q, note says %q", name, i, f.Text, h.Notes[i])
+			}
+			if strings.TrimSpace(f.Tag+" "+f.Value) == c.pill && strings.Contains(f.Text, c.note) && f.About == c.about {
+				found = true
+				if f.Fail != (c.grade == smart.Fail && f.About != smart.Bridge && f.Tag != "PARTIAL") {
+					t.Errorf("%s: %s fail=%v under %s", name, c.pill, f.Fail, c.grade)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: no pill %q (%s) among %+v", name, c.pill, c.about, h.Findings)
 		}
 	}
 }

@@ -45,7 +45,11 @@ func NewDemoFleet() *DemoFleet {
 	caps := []string{"wipe"}
 
 	seagate := demoDrive("ST31000528AS", "Seagate Barracuda 7200.12", "9VPAX9NA", 1000204886016, 7200, 11196, 41,
-		smart.Health{Grade: smart.Notes, Notes: []string{"Airflow_Temperature_Cel failed in the past (it ran hot once)."}},
+		demoHealth(
+			smart.Finding{Tag: "PAST", Value: "Airflow_Temperature_Cel", About: smart.Drive, Text: "Airflow_Temperature_Cel crossed its threshold in the past (worst 45, threshold 45)."},
+			smart.Finding{Tag: "REALLOC", Value: "8", About: smart.Drive, Text: "8 reallocated sectors."},
+			smart.Finding{Tag: "CRC", Value: "14", About: smart.Bridge, Text: "14 interface CRC errors (usually the cable or the bridge, not the platters)."},
+		),
 		model.Table{Type: "gpt", Parts: []model.Part{
 			{Path: "/dev/zawiper/bay1-part1", Size: 600e9, FSType: "ext4", Label: "data", Used: 312e9},
 			{Path: "/dev/zawiper/bay1-part2", Size: 400e9, FSType: "ntfs", Label: "Windows", Used: 88e9},
@@ -348,3 +352,12 @@ func (f *DemoFleet) Subscribe() (<-chan struct{}, func()) {
 }
 
 var _ hub.Fleet = (*DemoFleet)(nil)
+
+// demoHealth grades a pretend drive from its findings, as Assess would.
+func demoHealth(fs ...smart.Finding) smart.Health {
+	h := smart.Health{Grade: smart.Pass}
+	for _, f := range fs {
+		h.Add(f)
+	}
+	return h
+}

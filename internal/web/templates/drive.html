@@ -6,7 +6,7 @@
 <dl class="facts">
   <dt>First seen</dt><dd>{{when .FirstSeen}}</dd>
   <dt>Last seen</dt><dd>{{when .LastSeen}}</dd>
-  <dt>Last</dt><dd>{{.LastKind}} {{template "badge" .LastGrade}}</dd>
+  <dt>Last</dt><dd>{{.LastKind}} {{template "badge" .LastGrade}}{{template "pills" (pills .LastFindings 0)}}</dd>
 </dl>
 {{end}}
 <h2>Records</h2>
@@ -14,7 +14,7 @@
 {{range .Records}}
   <li>
     <a href="/drives/{{$.Dir}}/{{.ID}}">{{when .Finished}}</a>
-    · {{.Kind}} {{template "badge" .Health.Grade}}
+    · {{.Kind}} {{template "badge" .Health.Grade}}{{template "pills" (pills .Health.Findings 3)}}
     {{if .Host}}<span class="muted">· {{.Host}}/{{.Bay}}</span>{{end}}
     {{if .Refusals}}<span class="muted">· {{len .Refusals}} refusal{{if gt (len .Refusals) 1}}s{{end}}</span>{{end}}
   </li>
