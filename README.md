@@ -66,6 +66,7 @@ Today the two meet by hand (`ark stamp` at a shell).  Wipe + Load in the bay is 
 make test
 make build
 bin/zaweb -demo -hosts '' -records /tmp/zw    # a pretend fleet of four bays, on :8460
+bin/zawipe -hub http://localhost:8460 lab-a/bay1   # one of them in plain text, CHKDSK style
 ```
 
 A "drive" can be a file: `truncate -s 1000204886016 /tmp/bay.img`, then run `bin/bayd -dev-bay /tmp/bay.img -dev-smart internal/smart/testdata/st31000528as.json`.  Delete the file to pull the drive.

@@ -14,6 +14,7 @@ cmd/bayd         disk side, one per bay, root, DevicePolicy=closed, no network
 cmd/bayd-link    network side, one per bay, mTLS to the hub, no devices
 cmd/zaweb        the hub: wall, records, signing (a container)
 cmd/zverify      a buyer's check of a drive against its record
+cmd/zawipe       the hub in plain text: the wall as DIR, a bay scrolling like CHKDSK
 deploy/          bayrules (udev + drop-ins), install-bay.sh, ca.sh, units, hub compose
 site.example/    a deployment's overlay, copied to site/ (gitignored): hub .env, override, bay configs
 internal/        bay, link, hub, web, wipe, smart, grade, records, sign, proto, config, model
@@ -32,7 +33,7 @@ internal/        bay, link, hub, web, wipe, smart, grade, records, sign, proto, 
 
 ```
 make test                                   # go vet + go test
-make build                                  # bin/bayd, bin/bayd-link, bin/zaweb, bin/bayrules
+make build                                  # bin/bayd, bin/bayd-link, bin/zaweb, bin/zawipe, bin/bayrules
 bin/zaweb -demo -hosts '' -records /tmp/zw  # the wall with a pretend fleet
 ```
 

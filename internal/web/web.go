@@ -162,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /fragment/wall", s.wallFragment)
 	mux.HandleFunc("GET /bays/{host}/{name}", s.bay)
 	mux.HandleFunc("GET /fragment/bays/{host}/{name}", s.bayFragment)
+	mux.HandleFunc("GET /text", s.wallText)
+	mux.HandleFunc("GET /bays/{host}/{name}/text", s.bayText)
 	mux.HandleFunc("GET /events", s.events.serve)
 	mux.HandleFunc("GET /api/frame", s.apiFrame)
 	mux.HandleFunc("GET /api/bays", s.apiBays)

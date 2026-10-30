@@ -15,6 +15,7 @@ build:
 	$(GOBUILD) -o bin/bayd ./cmd/bayd
 	$(GOBUILD) -o bin/bayd-link ./cmd/bayd-link
 	$(GOBUILD) -o bin/zaweb ./cmd/zaweb
+	$(GOBUILD) -o bin/zawipe ./cmd/zawipe
 	$(GOBUILD) -o bin/bayrules ./deploy/bayrules
 
 test:
