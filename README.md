@@ -58,7 +58,7 @@ Today the two meet by hand (`ark stamp` at a shell).  Wipe + Load in the bay is 
 |---|---|
 | **Built** | The read-only bay, the networked fleet with kernel-held scope, the wipe with full read-back, the HPA and DCO check, the SMART diff and grade, signed records, `proof.zip`, `zverify`, the wall.  First hardware wipe 2026-10-26. |
 | **Next** | Purge through firmware sanitize, where the drive and bridge allow it.  Wipe + Load.  Certificate revocation per bay. |
-| **For institutions** | Sign-in through your identity provider, with control set per bay and visibility org-wide: each bay's config names the group allowed to run it (a Globus group, an AD group, whatever your IdP carries), while anyone signed in can watch the whole wall and look up any serial's history.  Custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for drives that can't be wiped.  Designed in the spec, not built yet: today, anyone who can reach the page can start a wipe, so keep it on a network where that's fine. |
+| **For institutions** | Sign-in through your identity provider, with control set per host and visibility org-wide: each dock host belongs to the group allowed to run its bays (a Keycloak group, a Globus group, whatever your IdP carries), while anyone signed in can watch the whole wall and look up any serial's history.  Custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for drives that can't be wiped.  Designed in the spec, not built yet: today, anyone who can reach the page can start a wipe, so keep it on a network where that's fine. |
 
 ## Try it without hardware
 
