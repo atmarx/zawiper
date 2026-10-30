@@ -302,7 +302,7 @@ func TestCapacity(t *testing.T) {
 		t.Errorf("HPA: %+v", c)
 	}
 	fakeHdparm(t, whole, `printf 'DCO Revision: 0x0001\\nReal max sectors: 1953525200\\n'`)
-	if c := s.Capacity(ctx, d, "ATA"); !c.Checked() || c.Hidden() != 32 || !strings.Contains(c.Method, "dco-identify") {
+	if c := s.Capacity(ctx, d, "ATA"); !c.Checked() || c.Hidden() != 32 || c.HPA() != 0 || c.DCO != 1953525200 || c.Native != 1953525168 || !strings.Contains(c.Method, "dco-identify") {
 		t.Errorf("DCO: %+v", c)
 	}
 	fakeHdparm(t, `echo 'SG_IO: questionable sense data' >&2; exit 5`, noDCO)

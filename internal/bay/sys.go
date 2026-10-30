@@ -376,7 +376,7 @@ func (s *Sys) Capacity(ctx context.Context, d Device, protocol string) *model.Ca
 	if m := realSectors.FindSubmatch(out); err == nil && m != nil {
 		c.Method += ", hdparm --dco-identify"
 		if real, _ := strconv.ParseInt(string(m[1]), 10, 64); real > c.Native {
-			c.Native = real
+			c.DCO = real
 		}
 	} else {
 		c.Method += "; no DCO"

@@ -191,9 +191,19 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 	if c, ok := src.(capacity); ok {
 		o.step("Checking for hidden sectors (hdparm)")
 		drv.Capacity = c.Capacity(ctx, d, info.Protocol)
-		if drv.Capacity.Checked() && drv.Capacity.Hidden() > 0 {
-			refuse("The drive keeps %s sectors (%s) from the host behind an HPA or DCO.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p%d` (and `hdparm --dco-restore` for a DCO), power-cycle the drive, and re-read.",
-				records.Commas(drv.Capacity.Hidden()), records.Size(drv.Capacity.Hidden()*512), drv.Capacity.Native)
+		if c := drv.Capacity; c.Checked() {
+			if n := c.HPA(); n > 0 {
+				refuse("The drive keeps %s sectors (%s) from the host behind a host protected area.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p%d`, power-cycle the drive, and re-read.",
+					records.Commas(n), records.Size(n*512), c.Native)
+			}
+			if n := c.DCOHidden(); n > 0 {
+				why := ""
+				if n == 1 {
+					why = "  A gap of exactly one is also what firmware reports when it fills in DCO IDENTIFY with a count where the standard asks for the last address.  If the restore goes through and the gap is still there, that's all this is."
+				}
+				refuse("The drive's device configuration overlay says it has %s sectors, %s more than it admits to (%s).  A wipe wouldn't reach them, so it couldn't count as Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore` can, then power-cycle the drive and re-read.%s",
+					records.Commas(c.DCO), records.Commas(n), records.Size(n*512), why)
+			}
 		}
 	}
 

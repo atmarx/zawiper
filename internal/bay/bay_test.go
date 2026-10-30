@@ -84,7 +84,15 @@ func TestReadRefusals(t *testing.T) {
 		"placeholder size": {func(f *fake) { f.devs[0].Size = 4140000000 }, "placeholder", false},
 		"HPA": {func(f *fake) {
 			f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
-		}, "keeps 2,048 sectors (1.05 MB) from the host", true},
+		}, "keeps 2,048 sectors (1.05 MB) from the host behind a host protected area.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p1953525168`", true},
+		// -N can't lift a DCO, so the refusal mustn't send anyone there.
+		"DCO": {func(f *fake) {
+			f.cap = &model.Capacity{Method: "hdparm -N, hdparm --dco-identify", Visible: fixtureSize / 512, Native: fixtureSize / 512, DCO: fixtureSize/512 + 32}
+		}, "overlay says it has 1,953,525,200 sectors, 32 more than it admits to (16.38 KB).  A wipe wouldn't reach them, so it couldn't count as Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore`", true},
+		// The EDGE SE847: no HPA, and a DCO one sector over (2026-10-29).
+		"DCO off by one": {func(f *fake) {
+			f.cap = &model.Capacity{Method: "hdparm -N, hdparm --dco-identify", Visible: fixtureSize / 512, Native: fixtureSize / 512, DCO: fixtureSize/512 + 1}
+		}, "1 more than it admits to (512 B).  A wipe wouldn't reach them, so it couldn't count as Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore` can, then power-cycle the drive and re-read.  A gap of exactly one", true},
 	}
 	for name, c := range cases {
 		f := drive(t)

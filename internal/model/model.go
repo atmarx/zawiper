@@ -136,15 +136,27 @@ type Drive struct {
 type Capacity struct {
 	Method  string `json:"method"`            // how it was checked
 	Visible int64  `json:"visible,omitempty"` // sectors the host can address
-	Native  int64  `json:"native,omitempty"`  // sectors the drive has, past any HPA or DCO
-	Note    string `json:"note,omitempty"`    // why it couldn't be checked, when it couldn't
+	Native  int64  `json:"native,omitempty"`  // sectors the drive has, past any HPA (hdparm -N)
+	// DCO is the drive's factory size from DEVICE CONFIGURATION IDENTIFY,
+	// set only when it's more than Native: a DCO holding sectors back,
+	// which -N can't give back.  Records from before 2026-10-30 folded it
+	// into Native.
+	DCO  int64  `json:"dco,omitempty"`
+	Note string `json:"note,omitempty"` // why it couldn't be checked, when it couldn't
 }
+
+// HPA is how many sectors a host protected area keeps back: what
+// hdparm -N p<Native> restores.
+func (c *Capacity) HPA() int64 { return c.Native - c.Visible }
+
+// DCOHidden is how many more a DCO keeps back, past the HPA.
+func (c *Capacity) DCOHidden() int64 { return max(0, c.DCO-c.Native) }
 
 // Checked says the drive answered.
 func (c *Capacity) Checked() bool { return c != nil && c.Note == "" && c.Native > 0 && c.Visible > 0 }
 
 // Hidden is how many sectors the host can't reach.
-func (c *Capacity) Hidden() int64 { return c.Native - c.Visible }
+func (c *Capacity) Hidden() int64 { return c.HPA() + c.DCOHidden() }
 
 func (d *Drive) Serial() string {
 	if d == nil || d.SMART == nil {
