@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · Za Wiper</title>
 <link rel="stylesheet" href="/static/zawiper.css">
+<script src="/static/prefs.js"></script>
 <script src="/static/zawiper.js" defer></script>
+<script src="/static/arcade.js" defer></script>
 </head>
 <body>
 <header class="top">
@@ -13,6 +15,7 @@
   <nav>
     <a href="/"{{if eq .Nav "wall"}} aria-current="page"{{end}}>Wall</a>
     <a href="/drives"{{if eq .Nav "drives"}} aria-current="page"{{end}}>Drives</a>
+    <button type="button" class="layout-toggle" data-wide aria-pressed="false" title="Fill the window, or keep DEFRAG's 80 columns">Wide</button>
   </nav>
 </header>
 <main>

@@ -127,20 +127,24 @@ func PhaseWords(p string) string {
 // Live is a job's surface map and the numbers in its status box, already
 // worded.  The page draws it once, and /events sends it on every tick.
 type Live struct {
-	Map     string `json:"map"`
-	Mini    string `json:"mini"`
-	Scale   string `json:"scale"`
-	Phase   string `json:"phase"`
-	Block   string `json:"block"`
-	Pct     string `json:"pct"`
-	Bar     string `json:"bar"`
-	Rate    string `json:"rate"`
-	ETA     string `json:"eta"`
-	Elapsed string `json:"elapsed"`
-	Temp    string `json:"temp"`
-	Errors  string `json:"errors"`
-	Written string `json:"written"`
-	Checked string `json:"checked"`
+	Map   string `json:"map"`
+	Mini  string `json:"mini"`
+	Scale string `json:"scale"`
+	// Fine is the map grouped less, for a wide layout on a big screen,
+	// and FineScale its scale.  Empty when it would be the same as Map.
+	Fine      string `json:"fine,omitempty"`
+	FineScale string `json:"finescale,omitempty"`
+	Phase     string `json:"phase"`
+	Block     string `json:"block"`
+	Pct       string `json:"pct"`
+	Bar       string `json:"bar"`
+	Rate      string `json:"rate"`
+	ETA       string `json:"eta"`
+	Elapsed   string `json:"elapsed"`
+	Temp      string `json:"temp"`
+	Errors    string `json:"errors"`
+	Written   string `json:"written"`
+	Checked   string `json:"checked"`
 	// Trace is the throughput graph, as TraceRows reads it, and Axis the
 	// labels beside it, a line per row.
 	Trace string `json:"trace"`
@@ -165,6 +169,8 @@ const (
 	// mapCells is about as many cells as the big map shows before it
 	// groups blocks: 1,000 GiB fits one to a cell, 4 TB goes three.
 	mapCells = 1600
+	// fineCells is the wide layout's limit: a 4 TB drive one block a cell.
+	fineCells = 6400
 	// traceCols is the graph's width in characters, narrow enough for a
 	// phone.
 	traceCols = 32
@@ -176,6 +182,9 @@ func LiveOf(j *model.Job, d *model.Drive, now time.Time) *Live {
 	per := (len(j.Map) + mapCells - 1) / mapCells
 	l := &Live{Map: Group(j.Map, per), Mini: Mini(j.Map, miniCells), Phase: PhaseWords(j.Phase),
 		Scale: fmt.Sprintf("1 block = %d GiB", max(1, per))}
+	if fine := (len(j.Map) + fineCells - 1) / fineCells; fine < per {
+		l.Fine, l.FineScale = Group(j.Map, fine), fmt.Sprintf("1 block = %d GiB", max(1, fine))
+	}
 	l.Written = gb(min(j.Done, j.Total))
 	l.Checked = gb(max(0, j.Done-j.Total))
 	l.Trace, l.Axis = trace(j.WriteMBps, j.ReadMBps, traceCols)

@@ -224,6 +224,10 @@ The wall draws discrete squares, so the grid reads as blocks rather than a fill;
 
 A 1 GiB block takes seven seconds or so, so the map alone moves in steps.  Between blocks, the engine reports after every 8 MiB buffer, and the link's once-a-second poll carries it: the written and verified byte counts, the percentage and the clock all move every second.  Under the boxes, a **Throughput** box graphs each block's MB/s across the drive, outer edge first: cyan as written, white as read back, so the read-back visibly catches up.  It's the drive's own speed curve, falling toward the inner tracks, in half-block characters.
 
+**Two layouts** (xram, 2026-10-29), a toggle in the header that each browser remembers.  Narrow draws the map 80 columns wide, as DEFRAG did.  Wide fills the window, puts the boxes side by side, and on a screen 1,600 pixels or wider draws the map grouped by no more than 6,400 cells instead of 1,600, so a 4 TB drive shows one block a cell.  A cell can't be finer than the job's own 1 GiB block.
+
+**The arcade** (xram, 2026-10-29).  F10, or a click on the map's title bar, swaps the map for a game of breakout played with its blocks: a slow ▒ takes two hits and mends to ■ on the first, a bad B never breaks, the blocks march down a row at a time, sooner each time, and the first miss ends it.  It runs in the viewer's browser and talks to nothing.  The live map keeps updating underneath, hidden, and comes back the moment the game ends.  A test holds `arcade.js` to that: no fetch, no API path, no event stream.  Breakout opens the bill; more games can follow it.
+
 `bayd` keeps the cell states, and the page gets them as one short string a tick.  Every viewer gets the same string (§4.3).  The final map, with each block's write and read times, goes into the record.  `record.md` and the printout carry it as text, so the map ships with the drive.
 
 The first map came from `zwipe` (`cmd/zwipe`), the hand-run wipe for `9VPAX9NA` on 2026-10-24.  It's a root CLI with the same read and refusals as `bayd`, and the serial on the command line as the confirmation.  Phase 2 moved its engine into `bayd`, and the CLI is gone.

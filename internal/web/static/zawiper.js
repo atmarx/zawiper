@@ -86,7 +86,16 @@
     }
   }
 
+  // Wide, on a screen with room for it, draws the finer map when there is
+  // one.  The narrow layout always draws the 80-column one.
+  const big = window.matchMedia("(min-width: 1600px)");
+  function fine() {
+    return document.documentElement.classList.contains("wide") && big.matches;
+  }
+
+  let last = null;
   function apply(frame) {
+    last = frame;
     const byKey = new Map(frame.bays.map((b) => [b.key, b]));
     for (const region of regions) {
       const shown = region.querySelectorAll("[data-key]");
@@ -96,7 +105,9 @@
         if (!b || b.sig !== el.dataset.sig) { stale = true; return; }
         if (!b.live) return;
         el.querySelectorAll("[data-field]").forEach((f) => {
-          const v = b.live[f.dataset.field];
+          let v = b.live[f.dataset.field];
+          if (fine() && f.dataset.field === "map" && b.live.fine) v = b.live.fine;
+          if (fine() && f.dataset.field === "scale" && b.live.finescale) v = b.live.finescale;
           if (typeof v !== "string") return;
           if ("cells" in f.dataset) cells(f, v);
           else if ("trace" in f.dataset) trace(f, v);
@@ -146,7 +157,25 @@
     el.hidden = !msg;
   }
 
+  // The layout toggle: the button says what pressing it gives you.
+  const toggle = document.querySelector("[data-wide]");
+  function sayLayout() {
+    if (!toggle) return;
+    const wide = document.documentElement.classList.contains("wide");
+    toggle.textContent = wide ? "80 col" : "Wide";
+    toggle.setAttribute("aria-pressed", String(wide));
+  }
+  sayLayout();
+  big.addEventListener("change", () => { if (last) apply(last); });
+
   document.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-wide]")) {
+      const wide = document.documentElement.classList.toggle("wide");
+      try { localStorage.setItem("zw-wide", wide ? "1" : "0"); } catch (_) { /* this page only, then */ }
+      sayLayout();
+      if (last) apply(last);
+      return;
+    }
     if (e.target.closest("[data-print]")) {
       window.print();
       return;

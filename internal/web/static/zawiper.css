@@ -75,6 +75,17 @@ main { max-width: 52rem; margin: 0 auto; padding: 1.25rem 16px 3rem; }
 .brand { font-family: var(--mono); font-weight: 700; letter-spacing: .2em; color: var(--ink); text-decoration: none; }
 .top nav a { margin-left: 1rem; color: var(--ink); text-decoration: none; }
 .top nav a[aria-current] { border-bottom: 2px solid var(--hazard); }
+.layout-toggle {
+  margin-left: 1rem; font: inherit; font-family: var(--mono); font-size: .85rem;
+  color: var(--ink); background: none; border: 1.5px solid var(--line); border-radius: 2px;
+  padding: 0 .5em; cursor: pointer;
+}
+.layout-toggle:hover { border-color: var(--ink); }
+
+/* Wide: the page fills the window, the map takes every column it can,
+   and the DEFRAG boxes sit side by side.  Narrow keeps DEFRAG's 80. */
+html.wide main { max-width: none; padding-left: 24px; padding-right: 24px; }
+html.wide .stop-inner { max-width: none; }
 .foot { text-align: center; color: var(--muted); font-family: var(--mono); font-size: .8rem; padding: 2rem 16px; }
 
 /* State: always a word and a shape, never colour alone. */
@@ -354,7 +365,15 @@ html { overflow-x: clip; }
 .dos-field { padding: 8px 1ch; }
 .dos-map {
   border: 4px double var(--cga-gray); padding: 4px 1ch;
+  /* 80 columns of cells, as DEFRAG drew them. */
+  box-sizing: content-box; width: 80ch; max-width: calc(100% - 2ch - 8px); margin: 0 auto;
 }
+html.wide .dos-map { width: auto; max-width: none; }
+html.wide .dos-boxes { grid-template-columns: repeat(auto-fit, minmax(42ch, 1fr)); }
+html.wide .dos-wide { grid-column: auto; }
+/* The arcade (arcade.js) plays over the map, in its frame. */
+.dos-arcade canvas { display: block; margin: 0 auto; cursor: none; touch-action: none; }
+.dos-hud { color: var(--cga-white); text-align: center; margin-bottom: 4px; }
 .dos-cells { white-space: normal; word-break: break-all; overflow-wrap: anywhere; line-break: anywhere; letter-spacing: 0; }
 .dos-cells span { white-space: normal; }
 .c-todo { color: var(--cga-gray); }

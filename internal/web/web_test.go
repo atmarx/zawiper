@@ -351,8 +351,11 @@ func TestBayStates(t *testing.T) {
 		`class="dos"`, "Writing the keystream", "Block 3 of 8",
 		"151 MB/s", "1:02:05", "41 °C", "18.7%", `data-field="map"`,
 		`<span class="c-written">■■</span><span class="c-cur">W</span><span class="c-todo">░░░░░</span>`)
-	if strings.Contains(body, "<button") {
+	if strings.Contains(content(body), "<button") {
 		t.Error("RUNNING has a button")
+	}
+	if chrome := strings.Replace(body, content(body), "", 1); strings.Count(chrome, "<button") != 1 || !strings.Contains(chrome, "data-wide") {
+		t.Error("the page's chrome has a button besides the layout toggle")
 	}
 
 	// DONE: the grade, the numbers, the record, Ack and Eject.
@@ -393,7 +396,7 @@ func TestBayStates(t *testing.T) {
 	// OFFLINE, whatever the last snapshot said.
 	body = get(h, "/bays/lab-b/sas0").Body.String()
 	wants(t, "offline", body, "OFFLINE", "link is down")
-	if strings.Contains(body, "<button") {
+	if strings.Contains(content(body), "<button") {
 		t.Error("an offline bay has buttons")
 	}
 }
@@ -521,6 +524,22 @@ func TestNoAbort(t *testing.T) {
 	if strings.Contains(strings.ToLower(get(h, "/static/zawiper.js").Body.String()), "abort") {
 		t.Error("the script mentions abort")
 	}
+	// The arcade is for whoever's watching: it never talks to anything.
+	arcade := get(h, "/static/arcade.js").Body.String()
+	for _, s := range []string{"fetch(", "XMLHttpRequest", "/api/", "EventSource", "sendBeacon", "abort"} {
+		if strings.Contains(arcade, s) {
+			t.Errorf("arcade.js has %q", s)
+		}
+	}
+}
+
+// content is a page without its header and footer: what's about the bay.
+func content(page string) string {
+	i, j := strings.Index(page, "<main>"), strings.Index(page, "</main>")
+	if i < 0 || j < i {
+		return page
+	}
+	return page[i : j+len("</main>")]
 }
 
 func TestRereadRateLimitPerBay(t *testing.T) {
@@ -877,6 +896,9 @@ func TestGroupAndGB(t *testing.T) {
 	l := LiveOf(&model.Job{Map: strings.Repeat("v", 4000), Total: 4000 * gib, Done: 4000 * gib}, nil, time.Now())
 	if len(l.Map) != 1334 || l.Scale != "1 block = 3 GiB" || l.Written != "4.295 TB" || l.Checked != "0.00 GB" {
 		t.Errorf("4 TB live: %d cells, %q, %q, %q", len(l.Map), l.Scale, l.Written, l.Checked)
+	}
+	if len(l.Fine) != 4000 || l.FineScale != "1 block = 1 GiB" {
+		t.Errorf("4 TB fine: %d cells, %q", len(l.Fine), l.FineScale)
 	}
 }
 
