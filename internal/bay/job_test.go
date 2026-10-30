@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // Five 256 KiB blocks, the last one short.

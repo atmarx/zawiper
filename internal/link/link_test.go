@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/link"
-	"zawiper/internal/link/testpki"
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/link"
+	"github.com/atmarx/zawiper/internal/link/testpki"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 const key = "dock1/a"

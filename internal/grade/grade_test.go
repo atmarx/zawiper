@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 func healthy(realloc, crc int64) *smart.Info {

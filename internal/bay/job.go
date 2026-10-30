@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/grade"
-	"zawiper/internal/model"
-	"zawiper/internal/records"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/grade"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 // job is the one wipe a bay runs at a time.  Its live model.Job sits in the

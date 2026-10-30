@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/proto"
 )
 
 const (

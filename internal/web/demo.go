@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
-	"zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/smart"
 )
 
 // DemoFleet is a pretend hub: four bays on two hosts, one of them mid-wipe

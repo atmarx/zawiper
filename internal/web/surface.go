@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/model"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // The DEFRAG glyph for each cell byte, and the class that colors it.

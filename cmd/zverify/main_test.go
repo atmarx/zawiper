@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/records"
-	"zawiper/internal/sign"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/sign"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 // A "drive" that isn't a whole number of MiB, so the last sample isn't

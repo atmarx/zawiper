@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
 )
 
 // Bay is one bay as the hub last heard it.

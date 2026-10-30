@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"zawiper/internal/model"
-	"zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/smart"
 )
 
 const fixtureSize = 1000204886016

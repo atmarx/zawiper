@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 func record(t *testing.T, started time.Time) *Record {

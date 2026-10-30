@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/model"
 )
 
 // The live wall.  On a Fleet tick, one frame is built and its bytes go to

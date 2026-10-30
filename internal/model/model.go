@@ -4,7 +4,7 @@ package model
 import (
 	"time"
 
-	"zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/smart"
 )
 
 type State string

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/proto"
 )
 
 // The hub can drop a record only by naming one this link sent.

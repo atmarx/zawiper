@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
-	"zawiper/internal/records"
-	"zawiper/internal/sign"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/sign"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 const host = "zawiper.example.org"

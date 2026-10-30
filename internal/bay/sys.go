@@ -17,10 +17,10 @@ import (
 	"syscall"
 	"time"
 
-	"zawiper/internal/config"
-	"zawiper/internal/model"
-	"zawiper/internal/records"
-	"zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/config"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/smart"
 )
 
 // Sys is the real Source: sysfs, blkid, smartctl, blockdev, mount.

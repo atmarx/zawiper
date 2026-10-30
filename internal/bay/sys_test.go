@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/config"
+	"github.com/atmarx/zawiper/internal/config"
 )
 
 // fakeSys builds a sysfs tree and /dev/disk/by-path under a temp dir:

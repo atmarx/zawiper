@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 const Schema = 1

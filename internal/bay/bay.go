@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // Bay watches the port, keeps the current snapshot, and runs the bay's one

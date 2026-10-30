@@ -8,7 +8,7 @@ import (
 	"os"
 	"sync"
 
-	"zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/model"
 )
 
 // Dev is a pretend bay for working on Za Wiper without hardware: a file is

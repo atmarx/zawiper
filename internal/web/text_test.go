@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/model"
 )
 
 // at is p percent of size, rounded up so the text says p.

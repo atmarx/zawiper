@@ -16,11 +16,11 @@ import (
 	"time"
 	_ "time/tzdata" // the container has no zoneinfo; TZ still works
 
-	"zawiper/internal/hub"
-	"zawiper/internal/proto"
-	"zawiper/internal/records"
-	"zawiper/internal/sign"
-	"zawiper/internal/web"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/sign"
+	"github.com/atmarx/zawiper/internal/web"
 )
 
 var (

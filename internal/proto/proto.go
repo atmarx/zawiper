@@ -13,7 +13,7 @@ import (
 	"os"
 	"time"
 
-	"zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/model"
 )
 
 type Verb string

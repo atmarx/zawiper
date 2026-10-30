@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/proto"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // settle is how old a record.json must be before it's sent.  A record

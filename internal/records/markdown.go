@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/qr"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/qr"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 // Viper heads every human copy.  Mandatory, per the spec.

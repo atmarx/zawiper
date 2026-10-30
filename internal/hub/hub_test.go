@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/link/testpki"
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/link/testpki"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 func startHub(t *testing.T, ca *testpki.CA) (*Hub, string) {

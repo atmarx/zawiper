@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"zawiper/internal/records"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 // Wipe grades a drive from SMART before and after a wipe, and the wipe's

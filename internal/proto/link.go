@@ -1,6 +1,6 @@
 package proto
 
-import "zawiper/internal/model"
+import "github.com/atmarx/zawiper/internal/model"
 
 // The link: one TLS connection a bay dials out to the hub and keeps open,
 // carrying newline-delimited JSON Frames both ways.  The hub knows which bay

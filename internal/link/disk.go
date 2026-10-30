@@ -9,9 +9,9 @@ import (
 	"os"
 	"syscall"
 
-	"zawiper/internal/bay"
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/bay"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
 )
 
 func (l *Link) disk() *proto.Client { return &proto.Client{Socket: l.Socket} }

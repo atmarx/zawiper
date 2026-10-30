@@ -16,11 +16,11 @@ import (
 	"strings"
 	"syscall"
 
-	"zawiper/internal/bay"
-	"zawiper/internal/config"
-	"zawiper/internal/model"
-	"zawiper/internal/proto"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/bay"
+	"github.com/atmarx/zawiper/internal/config"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/proto"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 var (

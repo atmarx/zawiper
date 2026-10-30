@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/records"
-	"zawiper/internal/sign"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/sign"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 const (

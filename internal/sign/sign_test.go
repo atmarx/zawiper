@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"zawiper/internal/model"
-	"zawiper/internal/records"
-	"zawiper/internal/smart"
-	"zawiper/internal/wipe"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/smart"
+	"github.com/atmarx/zawiper/internal/wipe"
 )
 
 func key(t *testing.T) (string, ed25519.PrivateKey) {

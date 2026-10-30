@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // Signer is the hub's signing key, and where buyers find its public half

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"zawiper/internal/hub"
-	"zawiper/internal/model"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // The plain-text look (spec §6.5): the wall and each bay as a console of

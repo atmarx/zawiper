@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
-	"zawiper/internal/model"
-	"zawiper/internal/records"
+	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/records"
 )
 
 // The speed scale under the throughput graph: what kind of drive moves data

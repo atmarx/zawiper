@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"zawiper/internal/link"
+	"github.com/atmarx/zawiper/internal/link"
 )
 
 var (
