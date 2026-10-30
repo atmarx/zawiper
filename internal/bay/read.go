@@ -3,6 +3,7 @@ package bay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -62,6 +63,23 @@ type capacity interface {
 	Capacity(ctx context.Context, d Device, protocol string) *model.Capacity
 }
 
+// ErrFiltered is the kernel's device filter refusing bayd its own drive.
+// The filter is built from /dev/zawiper/<bay> when bayd@ starts; a drive
+// that comes up in stages (a zero-size disk, then a bridge reset, then the
+// real one) can leave it holding numbers the drive no longer has.
+var ErrFiltered = errors.New("the kernel's device filter refused it")
+
+// filter is a Source that can tell the device filter apart from the drive.
+// Optional, so fakes needn't.
+type filter interface {
+	// Reach opens the drive and closes it, waiting a moment for the
+	// filter.  ErrFiltered means it never let bayd in.
+	Reach(ctx context.Context, d Device) error
+	// Restarted reports whether bayd already restarted for the drive as it
+	// sits now, and notes that it has.
+	Restarted(d Device) bool
+}
+
 func bounds(src Source) (int64, int64) {
 	if b, ok := src.(bounded); ok {
 		return b.Bounds()
@@ -116,6 +134,13 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 	if why != "" {
 		refuse("The host is using %s (%s).  That makes it not the bay's drive.  Not touching it.", d.Path, why)
 		return s
+	}
+
+	if f, ok := src.(filter); ok {
+		if err := f.Reach(ctx, d); errors.Is(err, ErrFiltered) {
+			refuse("The kernel won't let this bay open its own drive (%v).  That's the device filter systemd built when bayd started, not the drive or the bridge, and a restart that rebuilt it didn't help.  Compare `systemctl show bayd@<bay> -p DeviceAllow` with what's in /dev/zawiper/.", err)
+			return s
+		}
 	}
 
 	o.step("Setting it read-only")

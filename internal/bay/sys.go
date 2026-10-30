@@ -414,6 +414,36 @@ func (s *Sys) Table(ctx context.Context, d Device) (model.Table, error) {
 	return t, denied
 }
 
+// Reach checks that bayd may open the drive at all.  A refusal after
+// openable's wait is the kernel's device filter: nothing else stops root
+// opening a block device read-only.
+func (s *Sys) Reach(ctx context.Context, d Device) error {
+	err := openable(ctx, d.Path)
+	if errors.Is(err, os.ErrPermission) {
+		return fmt.Errorf("%w: %v", ErrFiltered, err)
+	}
+	return err
+}
+
+// Restarted reports whether bayd has already restarted once for the drive
+// as it sits now, and notes that it has.  The note lives in the runtime
+// directory, which outlasts a restart.  It names the device node and when
+// udev made it, so a re-inserted drive gets a restart of its own.  When it
+// can't tell, it says yes: a filter that's wrong rather than stale mustn't
+// restart bayd forever.
+func (s *Sys) Restarted(d Device) bool {
+	var st syscall.Stat_t
+	if err := syscall.Stat(d.Path, &st); err != nil {
+		return true
+	}
+	note := fmt.Sprintf("%s %d %d.%09d\n", d.Path, st.Rdev, st.Ctim.Sec, st.Ctim.Nsec)
+	p := filepath.Join(s.runDir(), "filter-restart")
+	if old, err := os.ReadFile(p); err == nil && string(old) == note {
+		return true
+	}
+	return os.WriteFile(p, []byte(note), 0o640) != nil
+}
+
 // openWait is how long openable waits for the device filter to let a node in.
 var openWait = 10 * time.Second
 
@@ -432,7 +462,7 @@ func openable(ctx context.Context, path string) error {
 			return nil
 		}
 		if !errors.Is(err, os.ErrPermission) || time.Now().After(deadline) {
-			return fmt.Errorf("can't open %s (%v), so I can't say what's on it", path, err)
+			return fmt.Errorf("can't open %s (%w), so I can't say what's on it", path, err)
 		}
 		select {
 		case <-ctx.Done():

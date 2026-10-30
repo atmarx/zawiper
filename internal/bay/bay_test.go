@@ -167,6 +167,43 @@ func TestPollFilesOnceAndOnChange(t *testing.T) {
 	}
 }
 
+// filtered is a drive the device filter won't let bayd open.
+type filtered struct {
+	*fake
+	restarted bool
+}
+
+func (f *filtered) Reach(context.Context, Device) error { return ErrFiltered }
+func (f *filtered) Restarted(Device) bool {
+	was := f.restarted
+	f.restarted = true
+	return was
+}
+
+// A stale filter restarts bayd once per insertion.  If the rebuilt filter
+// still refuses, the bay blames the filter, not the bridge, and stays up.
+func TestPollStaleFilter(t *testing.T) {
+	f := &filtered{fake: drive(t)}
+	restarts := 0
+	b := &Bay{Name: "test", Src: f, Restart: func() { restarts++ }}
+	ctx := context.Background()
+	b.Poll(ctx, false)
+	if restarts != 1 || f.ro {
+		t.Fatalf("first refusal: restarts %d, read anyway %v", restarts, f.ro)
+	}
+	b.Poll(ctx, true)
+	s := b.Status()
+	if restarts != 1 {
+		t.Errorf("restarted again for the same drive: %d", restarts)
+	}
+	if s.State != model.Present || len(s.Refusals) != 1 || !strings.Contains(s.Refusals[0], "device filter") || strings.Contains(s.Refusals[0], "bridge can't") {
+		t.Errorf("second refusal: %s %q", s.State, s.Refusals)
+	}
+	if f.ro {
+		t.Error("went on to set read-only through a filter that refuses")
+	}
+}
+
 // The trap in `ark stamp`: inside a VM, the VM's own disks are sd* too.
 // Only a path through the bay's USB port counts.
 func TestSysDevicesOnlyThePort(t *testing.T) {

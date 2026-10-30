@@ -104,6 +104,11 @@ func main() {
 		Host: host, Software: software, Direct: !dev, ReadOnly: readOnly, Shares: shares}
 	if dev {
 		b.Block = *devBlock
+	} else {
+		// No job is running when this is called.  systemd's Restart=always
+		// brings bayd back two seconds later, with a device filter built
+		// from /dev/zawiper as it is now.
+		b.Restart = func() { os.Exit(75) }
 	}
 	b.OnRead = func(s *model.Snapshot) (string, error) {
 		r := &records.Record{

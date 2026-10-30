@@ -2,6 +2,7 @@ package bay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -41,6 +42,9 @@ type Bay struct {
 	// Shares names the other bays behind the same bridge, for the refusal
 	// of a drive that could stall them.
 	Shares []string
+	// Restart ends bayd so systemd starts it again, with a device filter
+	// built afresh.  Nil in dev mode and tests that don't set it.
+	Restart func()
 	// Block, Buf and CheckEvery shrink a wipe for dev mode and tests.
 	Block, Buf, CheckEvery int64
 
@@ -177,6 +181,9 @@ func (b *Bay) Poll(ctx context.Context, force bool) {
 	b.set(model.Snapshot{State: model.Reading, Session: session, Message: "Reading identity, SMART, and what's on it."})
 	b.mu.Unlock()
 
+	if b.stale(ctx, devs) {
+		return
+	}
 	s := Read(ctx, b.Src, devs, ReadOpts{Shares: b.Shares, Step: func(m string) {
 		b.mu.Lock()
 		b.set(model.Snapshot{State: model.Reading, Session: session, Message: m})
@@ -195,6 +202,23 @@ func (b *Bay) Poll(ctx context.Context, force bool) {
 	b.dev = devs[0]
 	b.set(s)
 	b.mu.Unlock()
+}
+
+// stale restarts bayd when the device filter won't let it open the drive,
+// once per insertion, and says whether it did.  Poll only gets here with no
+// job running, so a restart never cuts a wipe short.  The second time, Read
+// refuses the drive and says why.
+func (b *Bay) stale(ctx context.Context, devs []Device) bool {
+	f, ok := b.Src.(filter)
+	if !ok || b.Restart == nil || len(devs) != 1 {
+		return false
+	}
+	if err := f.Reach(ctx, devs[0]); !errors.Is(err, ErrFiltered) || f.Restarted(devs[0]) {
+		return false
+	}
+	log.Printf("bay: the device filter won't let me open %s; restarting so systemd rebuilds it", devs[0].Path)
+	b.Restart()
+	return true
 }
 
 // set publishes a snapshot.  The caller holds b.mu.

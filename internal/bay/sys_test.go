@@ -253,6 +253,30 @@ func TestOpenable(t *testing.T) {
 	}
 }
 
+func TestRestartedOncePerNode(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "sdc")
+	os.WriteFile(node, nil, 0o644)
+	s := &Sys{RunDir: dir}
+	d := Device{Name: "sdc", Path: node}
+	if s.Restarted(d) {
+		t.Fatal("first time should restart")
+	}
+	if !s.Restarted(d) {
+		t.Error("second time for the same node should not")
+	}
+	// A re-inserted drive is a new node, so it gets a restart of its own.
+	os.Remove(node)
+	time.Sleep(10 * time.Millisecond)
+	os.WriteFile(node, nil, 0o644)
+	if s.Restarted(d) {
+		t.Error("a new node should restart again")
+	}
+	if !(&Sys{RunDir: filepath.Join(dir, "gone")}).Restarted(d) {
+		t.Error("a note it can't write must not allow a restart")
+	}
+}
+
 // fakeHdparm puts an hdparm on PATH that prints what a drive would.
 func fakeHdparm(t *testing.T, n, dco string) {
 	t.Helper()
