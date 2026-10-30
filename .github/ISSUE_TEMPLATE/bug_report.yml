@@ -1,0 +1,30 @@
+name: Bug report
+description: Something did the wrong thing.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a bay wiped or could wipe the wrong disk, or a record can be forged, please use [private reporting](https://github.com/atmarx/zawiper/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the first line of `journalctl -u bayd@<bay>`.
+      placeholder: "bayd 0.2.0 (abc1234)"
+  - type: input
+    id: hardware
+    attributes:
+      label: Dock and drive, if a drive is involved
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "`journalctl -u bayd@<bay> -u bayd-link@<bay>`, and `journalctl -k` for resets.  Check for hostnames and serials you'd rather keep."
+      render: text

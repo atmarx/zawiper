@@ -1,0 +1,44 @@
+name: Hardware report
+description: What a dock, bridge or HBA did with a drive, good or bad.
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bridges decide what a bay can do, and a failure is as useful as a success.  Paste only what you're happy to have public, and leave serials out if you'd rather.
+  - type: input
+    id: bridge
+    attributes:
+      label: Dock, adapter or HBA
+      description: Make and model, plus the USB ID from `lsusb` or the card's firmware mode.
+      placeholder: "Acme DK-2, 1234:5678, two slots"
+    validations:
+      required: true
+  - type: input
+    id: drive
+    attributes:
+      label: Drive
+      description: Model and size.  HDD or SSD.
+      placeholder: "ST2000DM001, 2 TB HDD"
+    validations:
+      required: true
+  - type: textarea
+    id: smartctl
+    attributes:
+      label: sudo smartctl -d sat -i /dev/sdX
+      render: text
+  - type: textarea
+    id: hdparm
+    attributes:
+      label: sudo hdparm -N /dev/sdX
+      render: text
+  - type: textarea
+    id: sanitize
+    attributes:
+      label: sudo hdparm --sanitize-status /dev/sdX
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: What the bay did
+      description: A refusal, a slow stretch, heat, resets, or a wipe that simply worked.

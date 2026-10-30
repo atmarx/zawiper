@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A way to wipe the wrong disk, or forge a record
+    url: https://github.com/atmarx/zawiper/security/advisories/new
+    about: Please report these privately.

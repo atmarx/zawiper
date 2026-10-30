@@ -2,6 +2,12 @@
 
 **Drive bays that wipe, prove it, and remember.**
 
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Go 1.24](https://img.shields.io/badge/go-1.24-00ADD8)](go.mod)
+![Status: early](https://img.shields.io/badge/status-early-orange)
+
+> **This software erases disks, on purpose, for good.**  It's built to refuse the wrong one, and the [Apache license](LICENSE) still means no warranty.  Try it [without hardware](#try-it-without-hardware) first, and read [what's not built yet](#where-it-stands) before you put it anywhere other people can reach.
+
 A cart of retired drives, a USB dock in a lab down the hall, and an auditor who wants to know, two years from now, what happened to serial `Z1N4BVB3`.  Za Wiper is for that whole chain: the bay that wipes the drive, the record that says exactly how, and the one place every record comes back to.
 
 Put a drive in a bay.  It reads the drive's identity, SMART health and whatever is on it, and touches nothing.  Confirm, and it overwrites every sector, reads every sector back, compares SMART before and after, and files a signed record under the drive's own serial number.  The record prints as a certificate, and anyone can check it without trusting us.
@@ -48,7 +54,7 @@ That's the first goal, and it outranks everything else.  A bay refuses a drive t
 
 ## And The Ark
 
-A wiped drive doesn't have to leave empty.  [The Ark](https://git.example.org/atmarx/the-ark) builds offline libraries onto ordinary drives: Wikipedia, Project Gutenberg, medical references, repair guides, with the Kiwix readers on board.  Za Wiper started there as the bay that prepares a drive for an Ark, and **Wipe + Load** is the job that joins them: wipe, prove it, then lay down a loadout and fill the drive to the last byte.  A retired drive leaves as a library, with a certificate that says what was on it before was erased.
+A wiped drive doesn't have to leave empty.  [The Ark](https://github.com/atmarx/the-ark) builds offline libraries onto ordinary drives: Wikipedia, Project Gutenberg, medical references, repair guides, with the Kiwix readers on board.  Za Wiper started there as the bay that prepares a drive for an Ark, and **Wipe + Load** is the job that joins them: wipe, prove it, then lay down a loadout and fill the drive to the last byte.  A retired drive leaves as a library, with a certificate that says what was on it before was erased.
 
 Today the two meet by hand (`ark stamp` at a shell).  Wipe + Load in the bay is Phase 3.
 
@@ -71,6 +77,19 @@ bin/zawipe -hub http://localhost:8460 lab-a/bay1   # one of them in plain text, 
 
 A "drive" can be a file: `truncate -s 1000204886016 /tmp/bay.img`, then run `bin/bayd -dev-bay /tmp/bay.img -dev-smart internal/smart/testdata/st31000528as.json`.  Delete the file to pull the drive.
 
+## Check a drive you were sent
+
+Bought a drive with a Za Wiper certificate?  You don't need a bay, a hub or our word for it:
+
+```
+go install github.com/atmarx/zawiper/cmd/zverify@latest
+sudo zverify record.json /dev/sdX    # a sample of the drive, opened read-only; -full for every byte
+```
+
+`record.json` can be the file or the https URL on the certificate.
+
+The signature on a record checks with plain `ssh-keygen -Y verify`, with none of this code in the loop.
+
 ## Docs
 
 - [docs/bringup.md](docs/bringup.md): from nothing to a signed record, for anyone rolling it out.
@@ -79,6 +98,14 @@ A "drive" can be a file: `truncate -s 1000204886016 /tmp/bay.img`, then run `bin
 - [docs/spec.md](docs/spec.md): what it is, the decisions and why, the hardware lessons, the record format, the phases.
 
 Go, no cgo.  A dock host needs Linux with systemd and udev, `smartmontools`, `hdparm` and `util-linux`.  The hub runs as a container.
+
+## Contributing
+
+Reports from real hardware are the most useful thing you can send: which bridges pass SMART, `hdparm` and SANITIZE, and which don't.  See [CONTRIBUTING.md](CONTRIBUTING.md).  A way to wipe the wrong disk, or to forge a record, goes through [SECURITY.md](SECURITY.md) rather than a public issue.
+
+## How it's made
+
+Idea, name and every call: Andrew Marx (xram).  Written with Claude, an AI, under the name Zim, in the open: the commits say so, and [docs/spec.md](docs/spec.md) marks who decided what, and when.
 
 ## License
 

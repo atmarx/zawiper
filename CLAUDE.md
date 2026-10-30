@@ -2,7 +2,7 @@
 
 ## What Is This
 
-Drive bays that wipe, prove it, and remember.  Bays on any number of dock hosts dial out to one hub, which keeps the wall, the records and the signing key.  The record is the product: it names the sanitization level, technique and standard clause, and it has to hold up for a stranger who doesn't trust us.  Spun out of [The Ark](https://git.example.org/atmarx/the-ark) on 2026-10-27, history intact; Wipe + Load (an Ark loadout on a wiped drive) is Phase 3.
+Drive bays that wipe, prove it, and remember.  Bays on any number of dock hosts dial out to one hub, which keeps the wall, the records and the signing key.  The record is the product: it names the sanitization level, technique and standard clause, and it has to hold up for a stranger who doesn't trust us.  Spun out of [The Ark](https://github.com/atmarx/the-ark) on 2026-10-27, history intact; Wipe + Load (an Ark loadout on a wiped drive) is Phase 3.
 
 - `docs/spec.md` is the design and the decisions, with who made each call and when.  Keep it current with the code.
 - `docs/bringup.md` takes a newcomer from nothing to a verified record.  `docs/operating.md` is day to day.
