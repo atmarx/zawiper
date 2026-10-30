@@ -36,7 +36,7 @@ That copies `site.example/` to `site/`, which git ignores.  `site/site.env` take
 - **Don't pass a USB device through to a VM.**  The dock re-enumerates on every swap, and QEMU's USB passthrough doesn't survive it.  Pass through the whole controller (PCIe), or run on bare metal.
 - **SAS cards only as a plain HBA** (IT firmware, `mpt3sas`).  Behind `megaraid_sas`, one controller-wide device reaches every disk on the card, which breaks a bay's scope, so Za Wiper refuses it.
 - **Bus-powered USB-C adapters are for 2.5" drives only.**  A 3.5" drive needs 12 V.
-- **Give every dock airflow.**  A wipe is hours of the drive working flat out, and a closed dock has nowhere to put the heat.  A small fan pointed at it took an SSD from 52 °C to 42 °C mid-wipe.  The bay pauses a job that runs over the drive's temperature ceiling, so a hot dock costs you time, but a fan costs less.
+- **Give every bay airflow, even a bare cable.**  A wipe is hours of the drive working flat out, with none of the airflow a case would give it.  An SSD lying bare on a desk reached 52 °C mid-wipe in still air; a small fan pointed at it took it to 42 °C.  The bay pauses a job that runs over the drive's temperature ceiling, so a hot dock costs you time, but a fan costs less.
 
 ## 1. The CA
 
