@@ -14,9 +14,10 @@ This replaces the hand-minting with a connection manager on the hub: an admin ad
 
 ## Decided
 
-- **Who:** a Globus OIDC login, with Globus groups deciding who may add hosts, unlock the CA and enroll.  The hub reads groups through Globus's groups scope and the Groups API, and caches the answer.  Membership rarely changes, so a cache measured in hours is fine.
-- **Break-glass:** a local Keycloak admin.  When Globus is down, bays keep wiping and the wall stays reachable.
-- **Audit on the hub:** who added each host, who unlocked the CA and when, and what each token enrolled.  Whoever runs a Globus group decides who's in it.  The hub records what those people did, because Globus won't.
+- **Keycloak decides; Globus only vouches** (xram, 2026-11-07).  The hub speaks OIDC to one place, Keycloak.  Keycloak brokers Globus as an identity provider.  Globus says who someone is, and Keycloak groups, which we run, say what they may do: add hosts, unlock the CA, enroll.  The groups ride in the token through a mapper, so the hub needs no Groups API and no Globus-specific code, and any other IdP Keycloak can broker works the same way.
+- **A first login gets nothing.**  The first-broker-login flow creates the Keycloak user with no groups.  An admin adds them.  Logging in through Globus never grants a right on its own.
+- **Break-glass:** a local Keycloak admin, on the same login path, for when Globus is down.  If Keycloak itself is down, bays keep wiping and the wall stays readable, and the hub host's own command line (decision 4 below) can still unlock and enroll.
+- **Audit on the hub:** who added each host, who unlocked the CA and when, and what each token enrolled.  Group membership is ours now, so Keycloak's admin events record who granted what.
 
 ## To decide before building
 
@@ -29,4 +30,4 @@ This replaces the hand-minting with a connection manager on the hub: an admin ad
 
 ## Testing
 
-A Globus mock for groups, run locally, lets the whole flow run without a real Globus registration: login, group checks, unlock, enroll, refuse.
+A test Keycloak realm with a mock identity provider in front of it runs the whole flow without a real Globus registration: login, the empty first login, group checks, unlock, enroll, refuse.
