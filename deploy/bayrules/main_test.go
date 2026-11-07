@@ -19,19 +19,19 @@ var bays = []*config.Bay{
 func TestRules(t *testing.T) {
 	r := rules(bays)
 	for _, want := range []string{
-		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", DEVPATH=="*/usb*/10-1/*", SYMLINK+="github.com/atmarx/zawiper/dock-a", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@dock-a.service"`,
-		`SYMLINK+="github.com/atmarx/zawiper/dock-a-part%n"`,
+		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", DEVPATH=="*/usb*/10-1/*", SYMLINK+="zawiper/dock-a", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@dock-a.service"`,
+		`SYMLINK+="zawiper/dock-a-part%n"`,
 		`RUN+="/usr/bin/systemctl --no-ask-password set-property --runtime bayd@dock-a.service 'DeviceAllow=/dev/zawiper/dock-a-part%n rw'"`,
-		`SUBSYSTEM=="scsi_generic", DEVPATH=="*/usb*/10-1/*", SYMLINK+="github.com/atmarx/zawiper/dock-a-sg"`,
-		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="pci-0000:03:00.0-sas-phy2-lun-0", SYMLINK+="github.com/atmarx/zawiper/hba0"`,
-		`SUBSYSTEM=="scsi_generic", ENV{ID_PATH}=="pci-0000:03:00.0-sas-phy2-lun-0", SYMLINK+="github.com/atmarx/zawiper/hba0-sg"`,
+		`SUBSYSTEM=="scsi_generic", DEVPATH=="*/usb*/10-1/*", SYMLINK+="zawiper/dock-a-sg"`,
+		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_PATH}=="pci-0000:03:00.0-sas-phy2-lun-0", SYMLINK+="zawiper/hba0"`,
+		`SUBSYSTEM=="scsi_generic", ENV{ID_PATH}=="pci-0000:03:00.0-sas-phy2-lun-0", SYMLINK+="zawiper/hba0-sg"`,
 		`'DeviceAllow=/dev/zawiper/hba0-sg rw'`,
 		`IMPORT{builtin}="path_id"`,
-		`SYMLINK+="github.com/atmarx/zawiper/hba0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@hba0.service", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}=""`,
-		`SYMLINK+="github.com/atmarx/zawiper/hba0-part%n", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}="", RUN+=`,
+		`SYMLINK+="zawiper/hba0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@hba0.service", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}=""`,
+		`SYMLINK+="zawiper/hba0-part%n", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}="", RUN+=`,
 		"# bay slot1: usb_port 4-2 lun 1\n",
-		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="github.com/atmarx/zawiper/slot1"`,
-		`SUBSYSTEM=="scsi_generic", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="github.com/atmarx/zawiper/slot1-sg"`,
+		`SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="zawiper/slot1"`,
+		`SUBSYSTEM=="scsi_generic", DEVPATH=="*/usb*/4-2/*/target*/*:1/*", SYMLINK+="zawiper/slot1-sg"`,
 	} {
 		if !strings.Contains(r, want) {
 			t.Errorf("rules lack %s\n%s", want, r)

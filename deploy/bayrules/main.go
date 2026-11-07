@@ -128,11 +128,11 @@ func rules(bays []*config.Bay) string {
 				systemctl, b.Name, node)
 		}
 		fmt.Fprintf(&sb, "\n# bay %s: %s\n", b.Name, b.Selector())
-		fmt.Fprintf(&sb, `SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", %s, SYMLINK+="github.com/atmarx/zawiper/%s", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@%s.service", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}=""`+"\n",
+		fmt.Fprintf(&sb, `SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", %s, SYMLINK+="zawiper/%s", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bayd@%s.service", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}=""`+"\n",
 			match, b.Name, b.Name)
-		fmt.Fprintf(&sb, `SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", %s, SYMLINK+="github.com/atmarx/zawiper/%s-part%%n", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}="", %s`+"\n",
+		fmt.Fprintf(&sb, `SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", %s, SYMLINK+="zawiper/%s-part%%n", ENV{UDISKS_IGNORE}="1", ENV{ID_FS_TYPE}="", %s`+"\n",
 			match, b.Name, allow(b.Name+"-part%n"))
-		fmt.Fprintf(&sb, `SUBSYSTEM=="scsi_generic", %s, SYMLINK+="github.com/atmarx/zawiper/%s-sg", %s`+"\n",
+		fmt.Fprintf(&sb, `SUBSYSTEM=="scsi_generic", %s, SYMLINK+="zawiper/%s-sg", %s`+"\n",
 			match, b.Name, allow(b.Name+"-sg"))
 	}
 	return sb.String()
