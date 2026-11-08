@@ -747,6 +747,7 @@ func TestCertificate(t *testing.T) {
 		"https://zawiper.example/drives/9VPAX9NA/2026-10-24T09-15-40Z-wipe",
 		"record.json.sig?download", "Print the sheet",
 		"Reallocated sectors",
+		"Clear, per NIST SP 800-88 Rev. 2", "Za Wiper makes this claim, not NIST or IEEE.",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("record page lacks %q", want)

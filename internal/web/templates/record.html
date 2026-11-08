@@ -131,7 +131,7 @@
       <p class="lbl-why">{{.Why}}</p>
       {{end}}
       <dl class="lbl-meta">
-        <dt>Level</dt><dd>{{with .San.Level}}{{.}}, NIST SP 800-88 Rev. 2{{else}}none claimed{{end}}</dd>
+        <dt>Level</dt><dd>{{with .San.Level}}{{.}}, per NIST SP 800-88 Rev. 2{{else}}none claimed{{end}}</dd>
         <dt>Wiped</dt><dd>{{.Date}}</dd>
       </dl>
       {{with .Seal.RecordURL}}
@@ -179,7 +179,7 @@
       {{if not .ForSale}}<div class="nfs-band">NOT FOR SALE</div>{{end}}
       <h3>Check it yourself</h3>
       {{template "cert-check" .}}
-      <p class="fine sheet-foot">This certificate states what Za Wiper observed on the date shown, and nothing more.  Record {{.R.ID}}.</p>
+      <p class="fine sheet-foot">This certificate states what Za Wiper observed on the date shown, and nothing more.{{with .San.Whose}}  {{.}}{{end}}  Record {{.R.ID}}.</p>
     </section>
 
   </div>
@@ -194,6 +194,7 @@
   {{with .San.Level}}<dt>Level</dt><dd><strong>{{.}}</strong></dd>{{end}}
   <dt>Technique</dt><dd>{{.San.Technique}}</dd>
   <dt>Standard</dt><dd>{{.San.Standard}}</dd>
+  {{with .San.Whose}}<dt>Whose claim</dt><dd>{{.}}</dd>{{end}}
   <dt>Verification</dt><dd>{{.San.Verify}}</dd>
   <dt>Result</dt><dd>{{.San.Result}}</dd>
   <dt>Completed</dt><dd>{{when .R.Wipe.Verified}}</dd>

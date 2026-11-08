@@ -392,11 +392,16 @@ type Sanitization struct {
 	Verify    string // how the wipe was verified
 	Result    string // what verification found
 	Limits    string // what this level can't reach
+	Whose     string // whose claim it is, when Level is set
 }
 
 // StandardClear names what a Clear certificate follows.  Rev. 2 leaves the
 // techniques themselves to IEEE 2883.
 const StandardClear = "NIST SP 800-88 Rev. 2, Guidelines for Media Sanitization (September 2025), at the Clear level.  Technique from IEEE Std 2883-2022, IEEE Standard for Sanitizing Storage: §8.4.2.2, Clear for ATA, and §7.2, full verification."
+
+// ClaimIsOurs goes wherever a level is claimed.  "Clear, NIST SP 800-88"
+// alone reads like NIST's verdict on the drive, and it isn't one.
+const ClaimIsOurs = "Za Wiper makes this claim, not NIST or IEEE.  They publish the standard it follows; neither examined this drive, and neither endorses Za Wiper."
 
 // Sanitize reads the claim a record supports, and nothing more.
 func Sanitize(r *Record) Sanitization {
@@ -444,6 +449,7 @@ func Sanitize(r *Record) Sanitization {
 		s.Why = fmt.Sprintf("The drive keeps %s sectors from the host behind an HPA or DCO, and the overwrite didn't reach them.", Commas(c.Hidden()))
 	default:
 		s.Level = "Clear"
+		s.Whose = ClaimIsOurs
 	}
 	return s
 }
@@ -647,6 +653,9 @@ func certificateSection(w func(string, ...any), r *Record) {
 	}
 	w("| Technique | %s |\n", s.Technique)
 	w("| Standard | %s |\n", s.Standard)
+	if s.Whose != "" {
+		w("| Whose claim | %s |\n", s.Whose)
+	}
 	w("| Media | %s |\n", c.Media)
 	w("| Verification | %s |\n", s.Verify)
 	w("| Result | %s |\n", s.Result)
