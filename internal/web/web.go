@@ -381,6 +381,9 @@ type bayView struct {
 	API    string
 	Wipe   bool   // the Wipe button is live
 	WhyNot string // and if not, why
+	// Skew: the disk side and the link are different builds, as a bay is
+	// after an install that left a running bayd@ alone.
+	Skew bool
 }
 
 func viewOf(b hub.Bay, now time.Time) bayView {
@@ -402,6 +405,7 @@ func viewOf(b hub.Bay, now time.Time) bayView {
 		}
 	}
 	v.Wipe, v.WhyNot = wipeable(b)
+	v.Skew = b.Online && b.Snap.Software != "" && strings.TrimPrefix(b.Snap.Software, "bayd ") != b.Version
 	return v
 }
 

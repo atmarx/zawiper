@@ -97,6 +97,7 @@
 {{else}}
   {{template "present" .}}
 {{end}}
+{{template "builds" .}}
 </div>
 {{end}}
 
@@ -255,4 +256,9 @@
   <div class="dos-foot"><span data-field="phase">{{.Phase}}</span></div>
 </div>
 {{end}}
+{{end}}
+
+{{define "builds"}}
+<p class="builds small muted">{{if .Snap.Software}}{{.Snap.Software}}{{else}}bayd isn't running; it starts when a drive goes in{{end}} · link {{if .Version}}{{.Version}}{{else}}didn't say{{end}}{{if .Skew}}
+  <br><strong class="skew">⚠ bayd and its link are different builds.</strong>  When the bay is idle: <span class="mono">systemctl restart bayd@{{.Name}}</span> on {{.Host}}, or pull the drive and the next one starts the new build.{{end}}</p>
 {{end}}

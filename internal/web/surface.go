@@ -426,7 +426,8 @@ func Sig(b hub.Bay) string {
 		Refusals []string
 		RecordID string
 		Job      *model.Job
-	}{b.Online, b.Caps, s.State, s.Message, s.Session, s.ReadAt, s.Drive, s.Devices, s.Refusals, s.RecordID, job})
+		Builds   [2]string
+	}{b.Online, b.Caps, s.State, s.Message, s.Session, s.ReadAt, s.Drive, s.Devices, s.Refusals, s.RecordID, job, [2]string{s.Software, b.Version}})
 	sum := sha256.Sum256(blob)
 	return hex.EncodeToString(sum[:8])
 }

@@ -23,12 +23,23 @@ func absent(err error) bool {
 	return errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED)
 }
 
+// OldDisk stands in for the version of a disk side too old to send one
+// (before 2026-11-09), so the page can tell it from one that isn't running.
+const OldDisk = "an older bayd, from before it reported its version"
+
+func unversioned(s *model.Snapshot) *model.Snapshot {
+	if s != nil && s.Software == "" {
+		s.Software = OldDisk
+	}
+	return s
+}
+
 // snapshot is the bay right now: the disk side's word when it's running,
 // and the job state file's when it isn't.
 func (l *Link) snapshot(ctx context.Context) (*model.Snapshot, error) {
 	snap, err := l.disk().Call(ctx, proto.Status)
 	if err == nil {
-		return snap, nil
+		return unversioned(snap), nil
 	}
 	if absent(err) {
 		s := l.idle()
@@ -89,7 +100,7 @@ func (l *Link) command(ctx context.Context, req proto.Request) proto.Reply {
 	}
 	snap, err := l.disk().Do(ctx, req)
 	if err == nil {
-		return proto.Reply{OK: true, Snapshot: snap}
+		return proto.Reply{OK: true, Snapshot: unversioned(snap)}
 	}
 	if !absent(err) {
 		return proto.Reply{Error: err.Error()}

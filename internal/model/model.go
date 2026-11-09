@@ -202,6 +202,9 @@ type Snapshot struct {
 	RecordID string    `json:"record_id,omitempty"`
 	Host     string    `json:"host,omitempty"`
 	Job      *Job      `json:"job,omitempty"` // RUNNING and the four endings
+	// Software is the disk side's own build, "bayd 0.2.0 (842215c)".  Empty
+	// when the link answers for a bay whose disk side isn't running.
+	Software string `json:"software,omitempty"`
 
 	// Raw smartctl output, kept for the record and not sent over the socket.
 	SmartJSON []byte `json:"-"`

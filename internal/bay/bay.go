@@ -63,7 +63,7 @@ type Bay struct {
 func (b *Bay) init() {
 	if b.kick == nil {
 		b.kick = make(chan struct{}, 1)
-		b.snap = model.Snapshot{State: model.Empty, Bay: b.Name, Host: b.Host}
+		b.snap = model.Snapshot{State: model.Empty, Bay: b.Name, Host: b.Host, Software: b.Software}
 	}
 }
 
@@ -223,7 +223,7 @@ func (b *Bay) stale(ctx context.Context, devs []Device) bool {
 
 // set publishes a snapshot.  The caller holds b.mu.
 func (b *Bay) set(s model.Snapshot) {
-	s.Bay, s.Host = b.Name, b.Host
+	s.Bay, s.Host, s.Software = b.Name, b.Host, b.Software
 	b.snap = s
 	if s.State == model.Reading {
 		// Each step of a read, so the journal shows which one hung.

@@ -62,22 +62,22 @@ func NewDemoFleet() *DemoFleet {
 	toshiba := demoDrive("TOSHIBA DT01ACA050", "Toshiba DT01ACA", "Z3K8P2QAS", 500107862016, 7200, 20412, 38,
 		smart.Health{Grade: smart.Pass}, model.Table{})
 
-	running := &hub.Bay{Key: "lab-a/bay1", Host: "lab-a", Name: "bay1", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
-	running.Snap = model.Snapshot{State: model.Running, Bay: "bay1", Host: "lab-a", Session: now.Add(-3 * time.Hour), ReadAt: now.Add(-3 * time.Hour), Drive: seagate}
+	running := &hub.Bay{Key: "lab-a/bay1", Host: "lab-a", Name: "bay1", Caps: caps, Version: "0.2.0 (demo)", Online: true, Seen: now}
+	running.Snap = model.Snapshot{State: model.Running, Bay: "bay1", Host: "lab-a", Session: now.Add(-3 * time.Hour), ReadAt: now.Add(-3 * time.Hour), Drive: seagate, Software: "bayd 0.2.0 (demo)"}
 	running.Snap.Job = newDemoJob(seagate, running.Snap.Session, now.Add(-2*time.Hour))
 	// Start partway into the write pass, so there's something to look at.
 	advance(running.Snap.Job, float64(len(running.Snap.Job.Map))*0.55)
 
-	present := &hub.Bay{Key: "lab-a/bay2", Host: "lab-a", Name: "bay2", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
-	present.Snap = model.Snapshot{State: model.Present, Bay: "bay2", Host: "lab-a", Session: now.Add(-4 * time.Minute), ReadAt: now.Add(-4 * time.Minute), Drive: wd, RecordID: "demo-inspect"}
+	present := &hub.Bay{Key: "lab-a/bay2", Host: "lab-a", Name: "bay2", Caps: caps, Version: "0.2.0 (demo)", Online: true, Seen: now}
+	present.Snap = model.Snapshot{State: model.Present, Bay: "bay2", Host: "lab-a", Session: now.Add(-4 * time.Minute), ReadAt: now.Add(-4 * time.Minute), Drive: wd, RecordID: "demo-inspect", Software: "bayd 0.2.0 (demo)"}
 
-	done := &hub.Bay{Key: "lab-b/dock", Host: "lab-b", Name: "dock", Caps: caps, Version: "bayd demo", Online: true, Seen: now}
+	done := &hub.Bay{Key: "lab-b/dock", Host: "lab-b", Name: "dock", Caps: caps, Version: "0.2.0 (demo)", Online: true, Seen: now}
 	job := newDemoJob(toshiba, now.Add(-90*time.Minute), now.Add(-80*time.Minute))
 	advance(job, float64(2*len(job.Map)+1))
 	finish(job, now.Add(-12*time.Minute))
-	done.Snap = model.Snapshot{State: model.Done, Bay: "dock", Host: "lab-b", Session: job.Session, ReadAt: job.Session, Drive: toshiba, Job: job, RecordID: job.RecordID}
+	done.Snap = model.Snapshot{State: model.Done, Bay: "dock", Host: "lab-b", Session: job.Session, ReadAt: job.Session, Drive: toshiba, Job: job, RecordID: job.RecordID, Software: "bayd 0.2.0 (demo)"}
 
-	offline := &hub.Bay{Key: "lab-b/sas0", Host: "lab-b", Name: "sas0", Caps: []string{"wipe", "sas"}, Version: "bayd demo", Online: false, Seen: now.Add(-3*time.Hour - 12*time.Minute)}
+	offline := &hub.Bay{Key: "lab-b/sas0", Host: "lab-b", Name: "sas0", Caps: []string{"wipe", "sas"}, Version: "0.2.0 (demo)", Online: false, Seen: now.Add(-3*time.Hour - 12*time.Minute)}
 	offline.Snap = model.Snapshot{State: model.Offline, Bay: "sas0", Host: "lab-b"}
 
 	for _, b := range []*hub.Bay{running, present, done, offline} {

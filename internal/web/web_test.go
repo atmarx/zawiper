@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/atmarx/zawiper/internal/hub"
+	linkpkg "github.com/atmarx/zawiper/internal/link"
 	"github.com/atmarx/zawiper/internal/model"
 	"github.com/atmarx/zawiper/internal/proto"
 	"github.com/atmarx/zawiper/internal/records"
@@ -964,4 +965,33 @@ func TestLeft(t *testing.T) {
 			t.Errorf("left(%v) = %q, want %q", d, got, want)
 		}
 	}
+}
+
+// A bay page names both halves' builds, and the wall says so when they
+// differ: an install leaves a running bayd@ alone, so a bay can come out of
+// it with a new link and the old disk side.
+func TestBuilds(t *testing.T) {
+	f, h, drv := setup(t)
+	const page = "/bays/lab-a/bay1"
+	set := func(software, link string) {
+		f.set("lab-a/bay1", func(b *hub.Bay) {
+			b.Version = link
+			b.Snap = model.Snapshot{State: model.Present, Session: session, Drive: drv, Software: software}
+		})
+	}
+
+	set("bayd 0.2.0 (842215c)", "0.2.0 (842215c)")
+	wants(t, "same", get(h, page).Body.String(), "bayd 0.2.0 (842215c) · link 0.2.0 (842215c)")
+	for _, path := range []string{page, "/"} {
+		if strings.Contains(get(h, path).Body.String(), "different builds") {
+			t.Errorf("%s: a skew for matching builds", path)
+		}
+	}
+
+	set(linkpkg.OldDisk, "0.2.0 (842215c)")
+	wants(t, "skew page", get(h, page).Body.String(), linkpkg.OldDisk, "⚠ bayd and its link are different builds.", "systemctl restart bayd@bay1")
+	wants(t, "skew tile", get(h, "/").Body.String(), `class="tile-skew"`)
+
+	f.set("lab-a/bay1", func(b *hub.Bay) { b.Snap = model.Snapshot{State: model.Empty} })
+	wants(t, "empty", get(h, page).Body.String(), "bayd isn't running; it starts when a drive goes in")
 }

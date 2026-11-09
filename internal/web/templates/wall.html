@@ -18,6 +18,7 @@
       <span class="tile-name">{{.Name}}</span>
       {{template "state" .State}}
     </div>
+    {{if .Skew}}<p class="tile-skew" title="{{.Snap.Software}} · link {{.Version}}">⚠ bayd and its link are different builds</p>{{end}}
     {{with .Snap.Drive}}{{with .SMART}}
     <div class="tile-model">{{.Model}} <span class="muted">· {{size .CapacityBytes}}</span></div>
     <div class="tile-serial">{{template "serial" .Serial}}</div>
