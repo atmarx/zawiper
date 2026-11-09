@@ -365,13 +365,14 @@ func TestBayStates(t *testing.T) {
 	body = get(h, page).Body.String()
 	wants(t, "done", body, "Wiped and verified.", "PASS WITH NOTES", "2:00:00", "1.07 GB", "Slow blocks",
 		`href="/drives/9VPAX9NA/2026-10-23T16-02-11Z-wipe"`, "The record",
-		`data-act="/api/bays/lab-a/bay1/ack"`, `data-act="/api/bays/lab-a/bay1/eject"`, "Done.  Every block")
+		`data-act="/api/bays/lab-a/bay1/ack"`, `data-act="/api/bays/lab-a/bay1/eject"`, "Done.  Every block",
+		"Taking the drive out?", "Print the certificate", `href="/drives/9VPAX9NA/2026-10-23T16-02-11Z-wipe?print=1"`)
 
 	// FAILED: the evidence before anything else.
 	set(model.Snapshot{State: model.Failed, Session: session, Drive: drv, Job: job("verify", "vvvBwwww", "read mismatch at offset 3,221,225,472: 512 bytes differ")})
 	body = get(h, page).Body.String()
 	wants(t, "failed", body, "The wipe failed.", "read mismatch at offset 3,221,225,472", "Reading it back and comparing",
-		"<strong>not</strong> wiped", "/ack", "/eject", `class="c-bad">B<`)
+		"<strong>not</strong> wiped", "/ack", "/eject", `class="c-bad">B<`, "Acknowledge first", "Print the record")
 	if strings.Index(body, "read mismatch") > strings.Index(body, `class="dos"`) || strings.Index(body, "read mismatch") > strings.Index(body, "ST31000528AS") {
 		t.Error("FAILED doesn't lead with the evidence")
 	}

@@ -180,6 +180,7 @@
       window.print();
       return;
     }
+    if (e.target.closest("[data-print-record]")) return; // a link: let it open
     const region = e.target.closest("[data-fragment]");
 
     const opener = e.target.closest("[data-open-confirm]");
@@ -233,5 +234,11 @@
         tr.hidden = needle !== "" && !tr.dataset.search.toLowerCase().includes(needle);
       });
     });
+  }
+  // The bay page's Print button opens a record with ?print=1: bring the
+  // dialog straight up, once everything on the sheet (the QR code) is in.
+  if (new URLSearchParams(location.search).has("print") && document.querySelector("[data-print]")) {
+    if (document.readyState === "complete") window.print();
+    else window.addEventListener("load", () => window.print(), { once: true });
   }
 })();

@@ -103,15 +103,29 @@
 
 {{define "recordlink"}}
 {{$id := .Snap.RecordID}}{{with .Snap.Job}}{{with .RecordID}}{{$id = .}}{{end}}{{end}}
-{{if and $id .Snap.Drive}}<p><a href="/drives/{{dir .Snap.Drive.Serial}}/{{$id}}">The record →</a>  <span class="muted small">Print it, or save it as a PDF to go with the drive.</span></p>
+{{if and $id .Snap.Drive}}{{$rec := printf "/drives/%s/%s" (dir .Snap.Drive.Serial) $id}}
+<div class="actions">
+  <a class="btn" href="{{$rec}}?print=1" target="_blank" rel="noopener" data-print-record>{{if eq .State "DONE"}}Print the certificate{{else}}Print the record{{end}}</a>
+  <a href="{{$rec}}">The record →</a>
+</div>
+<p class="muted small">Printing opens the record in a new tab with the print dialog up.  Choose “Save as PDF” there to keep a file instead.</p>
 {{else}}<p class="muted">The record is on its way to the hub.</p>{{end}}
 {{end}}
 
 {{define "settled"}}
+{{if eq .State "DONE"}}
+<div class="actions">
+  <button type="button" class="btn" data-act="{{.API}}/eject">Eject</button>
+  <button type="button" class="btn" data-act="{{.API}}/ack">Acknowledge</button>
+</div>
+<p class="small muted"><strong>Taking the drive out?</strong>  Eject.  It clears the job and lets the drive go; pull it when this page says it's safe.  Acknowledge is for leaving the drive in: it clears the job and reads the drive again.</p>
+{{else}}
 <div class="actions">
   <button type="button" class="btn" data-act="{{.API}}/ack">Acknowledge</button>
   <button type="button" class="btn" data-act="{{.API}}/eject">Eject</button>
 </div>
+<p class="small muted">Acknowledge first: it files how the job ended and clears it.  Then Eject, and pull the drive when this page says it's safe.</p>
+{{end}}
 {{end}}
 
 {{define "drivehead"}}
