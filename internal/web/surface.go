@@ -140,11 +140,13 @@ type Live struct {
 	Bar       string `json:"bar"`
 	Rate      string `json:"rate"`
 	ETA       string `json:"eta"`
-	Elapsed   string `json:"elapsed"`
-	Temp      string `json:"temp"`
-	Errors    string `json:"errors"`
-	Written   string `json:"written"`
-	Checked   string `json:"checked"`
+	// Left is the ETA in words, for a tile: "about 6 h 10 min left".
+	Left    string `json:"left"`
+	Elapsed string `json:"elapsed"`
+	Temp    string `json:"temp"`
+	Errors  string `json:"errors"`
+	Written string `json:"written"`
+	Checked string `json:"checked"`
 	// Trace is the throughput graph, as TraceRows reads it, and Axis the
 	// labels beside it, a line per row.
 	Trace string `json:"trace"`
@@ -218,6 +220,7 @@ func LiveOf(j *model.Job, d *model.Drive, now time.Time) *Live {
 	}
 	if j.ETA > 0 {
 		l.ETA = clock(time.Duration(j.ETA) * time.Second)
+		l.Left = left(time.Duration(j.ETA) * time.Second)
 	}
 	if j.TempC > 0 {
 		l.Temp = fmt.Sprintf("%d °C", j.TempC)
@@ -375,6 +378,20 @@ func clock(d time.Duration) string {
 		d = 0
 	}
 	return fmt.Sprintf("%d:%02d:%02d", int(d.Hours()), int(d.Minutes())%60, int(d.Seconds())%60)
+}
+
+// left is time to go, as a tile says it: to the minute, never to the second.
+func left(d time.Duration) string {
+	m := int(d.Round(time.Minute).Minutes())
+	switch {
+	case m < 1:
+		return "under a minute left"
+	case m < 60:
+		return fmt.Sprintf("about %d min left", m)
+	case m%60 == 0:
+		return fmt.Sprintf("about %d h left", m/60)
+	}
+	return fmt.Sprintf("about %d h %d min left", m/60, m%60)
 }
 
 func plural(n int) string {

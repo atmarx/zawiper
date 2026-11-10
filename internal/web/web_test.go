@@ -354,6 +354,7 @@ func TestBayStates(t *testing.T) {
 	if strings.Contains(content(body), "<button") {
 		t.Error("RUNNING has a button")
 	}
+	wants(t, "running tile", get(h, "/").Body.String(), "18.7%", `data-field="left">about 1 h 2 min left<`)
 	if chrome := strings.Replace(body, content(body), "", 1); strings.Count(chrome, "<button") != 1 || !strings.Contains(chrome, "data-wide") {
 		t.Error("the page's chrome has a button besides the layout toggle")
 	}
@@ -949,5 +950,18 @@ func TestSigIgnoresCPU(t *testing.T) {
 	b.Snap.Job = &model.Job{CPU: 31, HostCPU: 9, Cores: 4, Load: 2}
 	if Sig(b) != before {
 		t.Error("a CPU sample redraws the page")
+	}
+}
+
+func TestLeft(t *testing.T) {
+	for d, want := range map[time.Duration]string{
+		20 * time.Second:                "under a minute left",
+		12*time.Minute + 20*time.Second: "about 12 min left",
+		2 * time.Hour:                   "about 2 h left",
+		28*time.Hour + 14*time.Minute:   "about 28 h 14 min left",
+	} {
+		if got := left(d); got != want {
+			t.Errorf("left(%v) = %q, want %q", d, got, want)
+		}
 	}
 }

@@ -237,3 +237,45 @@ func TestSurfaceSVG(t *testing.T) {
 		t.Errorf("legend %+v", legend)
 	}
 }
+
+// A bay from before findings sent notes alone.  The hub tags them when it
+// reads the record, for the pills, and leaves the file as it was.
+func TestOldNotesGetPills(t *testing.T) {
+	s := &Store{Root: t.TempDir()}
+	r := record(t, time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC))
+	want := r.Health.Findings
+	if len(want) == 0 {
+		t.Fatal("the fixture should have findings")
+	}
+	r.Health.Findings = nil
+	r.Health.Notes = append(r.Health.Notes, "Something today's checks don't say.")
+	if err := s.SaveInspect(r, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	disk, _ := os.ReadFile(s.Path(r.Serial, r.ID, "record.json"))
+
+	got, err := s.Record(r.Serial, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := got.Health.Findings
+	if len(fs) != len(want)+1 {
+		t.Fatalf("findings %+v", fs)
+	}
+	for i, f := range want {
+		if fs[i].Tag != f.Tag || fs[i].Value != f.Value || fs[i].Text != f.Text {
+			t.Errorf("finding %d: %+v, want %+v", i, fs[i], f)
+		}
+	}
+	if last := fs[len(fs)-1]; last.Tag != "NOTE" || last.Text != "Something today's checks don't say." {
+		t.Errorf("unmatched note %+v", last)
+	}
+
+	drives, _ := s.Drives()
+	if len(drives) != 1 || len(drives[0].LastFindings) != len(fs) {
+		t.Errorf("summary findings %+v", drives)
+	}
+	if after, _ := os.ReadFile(s.Path(r.Serial, r.ID, "record.json")); string(after) != string(disk) {
+		t.Error("reading a record changed record.json")
+	}
+}

@@ -188,6 +188,7 @@ func (s *Store) Drives() ([]Summary, error) {
 		}
 		var sum Summary
 		if json.Unmarshal(b, &sum) == nil {
+			s.tagSummary(&sum)
 			out = append(out, sum)
 		}
 	}
@@ -205,7 +206,11 @@ func (s *Store) Summary(serial string) (*Summary, error) {
 		return nil, err
 	}
 	var sum Summary
-	return &sum, json.Unmarshal(b, &sum)
+	if err := json.Unmarshal(b, &sum); err != nil {
+		return nil, err
+	}
+	s.tagSummary(&sum)
+	return &sum, nil
 }
 
 // Records lists one drive's record IDs, newest first.
@@ -236,7 +241,34 @@ func (s *Store) Record(serial, id string) (*Record, error) {
 	if err := json.Unmarshal(b, &r); err != nil {
 		return nil, fmt.Errorf("%s/%s: %w", serial, id, err)
 	}
+	r.tag()
 	return &r, nil
+}
+
+// tag fills in pills for a record whose bay predates findings, from the
+// SMART it carries.  Only in memory: record.json and its signature are
+// untouched, and nothing saves a record read back from the store.
+func (r *Record) tag() {
+	if len(r.Health.Findings) > 0 || len(r.Health.Notes) == 0 || r.Drive.SMART == nil {
+		return
+	}
+	again := smart.Assess(r.Drive.SMART).Findings
+	if r.Before != nil {
+		again = append(again, smart.Rising(r.Before, r.Drive.SMART)...)
+	}
+	r.Health.Findings = r.Health.Tagged(again)
+}
+
+// tagSummary does the same for a drive.json written from such a record.
+func (s *Store) tagSummary(sum *Summary) {
+	if len(sum.LastFindings) > 0 || sum.LastGrade == smart.Pass || sum.LastGrade == "" {
+		return
+	}
+	if ids, _ := s.Records(sum.Serial); len(ids) > 0 {
+		if r, err := s.Record(sum.Serial, ids[0]); err == nil {
+			sum.LastFindings = r.Health.Findings
+		}
+	}
 }
 
 // Path is where a record's file lives.  Unknown names and unsafe path

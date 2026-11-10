@@ -31,7 +31,7 @@
     {{else if eq .State "RUNNING"}}
       {{with .Live}}
       <div class="mini dos-cells" data-field="mini" data-cells aria-hidden="true">{{cells .Mini}}</div>
-      <p class="tile-line"><strong data-field="pct">{{.Pct}}</strong> · <span data-field="phase">{{.Phase}}</span></p>
+      <p class="tile-line"><strong data-field="pct">{{.Pct}}</strong> · <span data-field="phase">{{.Phase}}</span><br><span class="muted" data-field="left">{{.Left}}</span></p>
       {{end}}
     {{else if eq .State "DONE"}}
       <p class="tile-line">Wiped and verified.</p>

@@ -232,6 +232,29 @@ func (h *Health) Add(f Finding) {
 	}
 }
 
+// Tagged gives notes from before findings existed (bayd before Oct 29) the
+// tags they'd carry now, for the pills.  A note today's checks word the same
+// way takes that check's tag; any other is a plain NOTE.  The words are the
+// note's own either way.  Display only: the signed record keeps what it said.
+func (h Health) Tagged(again []Finding) []Finding {
+	if len(h.Findings) > 0 || len(h.Notes) == 0 {
+		return h.Findings
+	}
+	byText := map[string]Finding{}
+	for _, f := range again {
+		byText[f.Text] = f
+	}
+	out := make([]Finding, 0, len(h.Notes))
+	for _, n := range h.Notes {
+		f, ok := byText[n]
+		if !ok {
+			f = Finding{Tag: "NOTE", Text: n}
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 // Lead puts a finding first, leaving the grade alone: how a job ended goes
 // above what the grade found.
 func (h *Health) Lead(f Finding) {
