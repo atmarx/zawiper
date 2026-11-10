@@ -996,3 +996,18 @@ func TestBuilds(t *testing.T) {
 	f.set("lab-a/bay1", func(b *hub.Bay) { b.Snap = model.Snapshot{State: model.Empty} })
 	wants(t, "empty", get(h, page).Body.String(), "bayd isn't running; it starts when a drive goes in")
 }
+
+// A drive back in a bay says it's been through before, and whether it was
+// wiped, so nobody wipes a wiped drive twice without knowing.
+func TestBayHistory(t *testing.T) {
+	f, h, drv := setup(t)
+	const page = "/bays/lab-a/bay1"
+	wants(t, "back again", get(h, page).Body.String(), "<strong>Wiped and verified</strong>", "1 earlier record →", `href="/drives/9VPAX9NA"`)
+
+	other := *drv
+	si := *drv.SMART
+	si.Serial = "NEWDRIVE01"
+	other.SMART = &si
+	f.set("lab-a/bay1", func(b *hub.Bay) { b.Snap.Drive, b.Snap.RecordID = &other, "" })
+	wants(t, "new", get(h, page).Body.String(), "First time through the bays.")
+}

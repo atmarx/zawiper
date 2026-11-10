@@ -314,6 +314,7 @@ func (s *Server) bay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v := viewOf(b, time.Now())
+	v.Past = s.past(b)
 	var recent []records.Summary
 	if v.State == model.Empty {
 		recent = s.recent(5)
@@ -330,7 +331,9 @@ func (s *Server) bayFragment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	s.render(w, "bay", "baybody", viewOf(b, time.Now()))
+	v := viewOf(b, time.Now())
+	v.Past = s.past(b)
+	s.render(w, "bay", "baybody", v)
 }
 
 // apiFrame is the poll fallback: the same frame /events sends.
@@ -384,6 +387,40 @@ type bayView struct {
 	// Skew: the disk side and the link are different builds, as a bay is
 	// after an install that left a running bayd@ alone.
 	Skew bool
+	// Past is what the hub already knows about the drive in the bay.
+	Past *pastView
+}
+
+// pastView is a drive's history, for a bay page: has it been through
+// before, and was it wiped?
+type pastView struct {
+	Serial   string
+	Earlier  int             // records before this read's own
+	LastWipe *records.Record // the newest wipe, whether or not it finished
+}
+
+// past looks the bay's drive up in the records.  Nil when there's no drive,
+// or it has never been through any bay before this read.
+func (s *Server) past(b hub.Bay) *pastView {
+	d := b.Snap.Drive
+	if d == nil || d.Serial() == "" || s.Store == nil {
+		return nil
+	}
+	ids, _ := s.Store.Records(d.Serial())
+	p := &pastView{Serial: d.Serial()}
+	for _, id := range ids {
+		if id == b.Snap.RecordID {
+			continue
+		}
+		p.Earlier++
+		if p.LastWipe == nil && strings.HasSuffix(id, "-wipe") {
+			p.LastWipe, _ = s.Store.Record(p.Serial, id)
+		}
+	}
+	if p.Earlier == 0 {
+		return nil
+	}
+	return p
 }
 
 func viewOf(b hub.Bay, now time.Time) bayView {

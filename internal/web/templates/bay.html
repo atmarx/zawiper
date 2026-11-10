@@ -163,6 +163,7 @@
     <dt>Type</dt><dd>{{rotation .SMART.RotationRate}}</dd>
     <dt>Power-on</dt><dd>{{commas .SMART.PowerOnHours}} h · {{commas .SMART.PowerCycles}} cycles</dd>
     <dt>Temp</dt><dd>{{.SMART.TempC}} °C</dd>
+    <dt>History</dt><dd>{{with $.Past}}{{with .LastWipe}}{{if and .Wipe .Wipe.OK}}<strong>Wiped and verified</strong>{{else}}A wipe that didn't finish{{end}}, {{when .Finished}} {{template "badge" .Health.Grade}} · {{end}}<a href="/drives/{{dir .Serial}}">{{.Earlier}} earlier record{{if ne .Earlier 1}}s{{end}} →</a>{{else}}First time through the bays.{{end}}</dd>
     {{end}}
     <dt>Bridge</dt><dd>{{bridge .Bridge}}</dd>
     <dt>Device</dt><dd class="mono">{{.Dev}}{{if .ReadOnly}} · read-only{{end}}</dd>
