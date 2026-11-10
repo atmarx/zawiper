@@ -143,9 +143,23 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 		}
 	}
 
+	// Read-only, so peeking inside can't write.  A drive that just went in
+	// can beat udev, which hasn't yet let this unit open its partitions:
+	// wait for it.  If it still won't, nothing gets mounted, and that's a
+	// note, not a refusal: the wipe doesn't need it.
 	o.step("Setting it read-only")
-	if err := src.SetRO(d); err != nil {
-		refuse("Couldn't set %s read-only (%v), so I won't mount anything on it to look inside.", d.Path, err)
+	var notes []smart.Finding
+	err = src.SetRO(d)
+	for _, w := range roWaits {
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+		time.Sleep(w)
+		err = src.SetRO(d)
+	}
+	if err != nil {
+		notes = append(notes, smart.Finding{Tag: "NO-PEEK", About: smart.Job,
+			Text: fmt.Sprintf("Couldn't set %s read-only (%v), so nothing on it was mounted to look inside.  The partitions are still listed.", d.Path, err)})
 	} else {
 		drv.ReadOnly = true
 	}
@@ -170,6 +184,9 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 	default:
 		drv.SMART = info
 		drv.Health = smart.Assess(info)
+		for _, f := range notes {
+			drv.Health.Add(f)
+		}
 		if info.CapacityBytes != d.Size {
 			refuse("The bridge says %s but the drive says %s.  A bridge falls back to a placeholder size when the drive doesn't identify itself properly as it comes up.  Reseat the drive and re-read, and if it holds, try it on another port.",
 				records.Size(d.Size), records.Size(info.CapacityBytes))
@@ -192,17 +209,21 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 		o.step("Checking for hidden sectors (hdparm)")
 		drv.Capacity = c.Capacity(ctx, d, info.Protocol)
 		if c := drv.Capacity; c.Checked() {
+			// Hidden sectors don't stop a wipe.  It covers everything
+			// else, and its record withholds Clear (records.Sanitize).
 			if n := c.HPA(); n > 0 {
-				refuse("The drive keeps %s sectors (%s) from the host behind a host protected area.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p%d`, power-cycle the drive, and re-read.",
-					records.Commas(n), records.Size(n*512), c.Native)
+				drv.Health.Add(smart.Finding{Tag: "HPA", Value: sectors(n), About: smart.Drive,
+					Text: fmt.Sprintf("The drive keeps %s sectors (%s) from the host behind a host protected area.  A wipe covers everything else but not those, so its record can't claim Clear.  To reach them: `hdparm -N p%d`, power-cycle the drive, and re-read.",
+						records.Commas(n), records.Size(n*512), c.Native)})
 			}
 			if n := c.DCOHidden(); n > 0 {
 				why := ""
 				if n == 1 {
 					why = "  A gap of exactly one is also what firmware reports when it fills in DCO IDENTIFY with a count where the standard asks for the last address.  If the restore goes through and the gap is still there, that's all this is."
 				}
-				refuse("The drive's device configuration overlay says it has %s sectors, %s more than it admits to (%s).  A wipe wouldn't reach them, so it couldn't count as Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore` can, then power-cycle the drive and re-read.%s",
-					records.Commas(c.DCO), records.Commas(n), records.Size(n*512), why)
+				drv.Health.Add(smart.Finding{Tag: "DCO", Value: sectors(n), About: smart.Drive,
+					Text: fmt.Sprintf("The drive's device configuration overlay says it has %s sectors, %s more than it admits to (%s).  A wipe covers everything else but not those, so its record can't claim Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore` can, on a bridge that passes it through, then power-cycle the drive and re-read.%s",
+						records.Commas(c.DCO), records.Commas(n), records.Size(n*512), why)})
 			}
 		}
 	}
@@ -251,4 +272,15 @@ func backupBySignature(p *model.Part) string {
 		return "encrypted (LUKS), so I can't see what's inside"
 	}
 	return ""
+}
+
+// roWaits are the pauses before each retry of read-only, while udev catches
+// up with a drive that just went in.
+var roWaits = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}
+
+func sectors(n int64) string {
+	if n == 1 {
+		return "1 sector"
+	}
+	return records.Commas(n) + " sectors"
 }

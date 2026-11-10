@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atmarx/zawiper/internal/model"
 	"github.com/atmarx/zawiper/internal/smart"
@@ -15,20 +16,28 @@ import (
 const fixtureSize = 1000204886016
 
 type fake struct {
-	devs   []Device
-	inUse  string
-	roErr  error
-	smart  []byte
-	table  model.Table
-	peeked []string
-	ro     bool
-	cap    *model.Capacity
+	devs    []Device
+	inUse   string
+	roErr   error
+	roFails int // SetRO fails this many times first, as a drive that beats udev
+	smart   []byte
+	table   model.Table
+	peeked  []string
+	ro      bool
+	cap     *model.Capacity
 }
 
-func (f *fake) Devices() ([]Device, error)                         { return f.devs, nil }
-func (f *fake) Bridge(Device) model.Bridge                         { return model.Bridge{VendorID: "174c"} }
-func (f *fake) InUse(Device) (string, error)                       { return f.inUse, nil }
-func (f *fake) SetRO(Device) error                                 { f.ro = f.roErr == nil; return f.roErr }
+func (f *fake) Devices() ([]Device, error)   { return f.devs, nil }
+func (f *fake) Bridge(Device) model.Bridge   { return model.Bridge{VendorID: "174c"} }
+func (f *fake) InUse(Device) (string, error) { return f.inUse, nil }
+func (f *fake) SetRO(Device) error {
+	if f.roFails > 0 {
+		f.roFails--
+		return errors.New("blockdev: cannot open /dev/sdc1: Operation not permitted")
+	}
+	f.ro = f.roErr == nil
+	return f.roErr
+}
 func (f *fake) Table(context.Context, Device) (model.Table, error) { return f.table, nil }
 func (f *fake) SetRW(Device) error                                 { f.ro = false; return nil }
 func (f *fake) Forget(Device) error                                { return nil }
@@ -76,23 +85,11 @@ func TestReadRefusals(t *testing.T) {
 	}{
 		"two drives": {func(f *fake) { f.devs = append(f.devs, Device{Name: "sdd", Path: "/dev/sdd", Size: 1}) }, "one at a time", false},
 		"in use":     {func(f *fake) { f.inUse = "sdc1 is mounted at /" }, "host is using", false},
-		"no ro":      {func(f *fake) { f.roErr = errors.New("nope") }, "read-only", false},
 		// A drive that doesn't answer, or disagrees about its size, gets no
 		// further reads: no peek.
 		"no smart": {func(f *fake) { f.smart = []byte(`{"smartctl":{"exit_status":2}}`) }, "didn't answer SMART", false},
 		// A two-slot ASM1156 dock has reported 4.14 GB in both slots.
 		"placeholder size": {func(f *fake) { f.devs[0].Size = 4140000000 }, "placeholder", false},
-		"HPA": {func(f *fake) {
-			f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
-		}, "keeps 2,048 sectors (1.05 MB) from the host behind a host protected area.  A wipe wouldn't reach them, so it couldn't count as Clear.  Restore the full size with `hdparm -N p1953525168`", true},
-		// -N can't lift a DCO, so the refusal mustn't send anyone there.
-		"DCO": {func(f *fake) {
-			f.cap = &model.Capacity{Method: "hdparm -N, hdparm --dco-identify", Visible: fixtureSize / 512, Native: fixtureSize / 512, DCO: fixtureSize/512 + 32}
-		}, "overlay says it has 1,953,525,200 sectors, 32 more than it admits to (16.38 KB).  A wipe wouldn't reach them, so it couldn't count as Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore`", true},
-		// The EDGE SE847: no HPA, and a DCO one sector over (2026-10-29).
-		"DCO off by one": {func(f *fake) {
-			f.cap = &model.Capacity{Method: "hdparm -N, hdparm --dco-identify", Visible: fixtureSize / 512, Native: fixtureSize / 512, DCO: fixtureSize/512 + 1}
-		}, "1 more than it admits to (512 B).  A wipe wouldn't reach them, so it couldn't count as Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore` can, then power-cycle the drive and re-read.  A gap of exactly one", true},
 	}
 	for name, c := range cases {
 		f := drive(t)
@@ -105,6 +102,62 @@ func TestReadRefusals(t *testing.T) {
 		if got := len(f.peeked) > 0; got != c.peek {
 			t.Errorf("%s: peeked=%v", name, got)
 		}
+	}
+}
+
+// Hidden sectors and a drive that won't go read-only don't stop a wipe:
+// they're notes, with pills, and the record withholds Clear for the first.
+func TestReadNotesNotRefusals(t *testing.T) {
+	roWaits = nil
+	cases := map[string]struct {
+		mod  func(*fake)
+		tag  string
+		want string
+		peek bool
+	}{
+		"no ro": {func(f *fake) { f.roErr = errors.New("nope") }, "NO-PEEK", "nothing on it was mounted to look inside", false},
+		"HPA": {func(f *fake) {
+			f.cap = &model.Capacity{Method: "hdparm -N", Visible: fixtureSize/512 - 2048, Native: fixtureSize / 512}
+		}, "HPA", "keeps 2,048 sectors (1.05 MB) from the host behind a host protected area.  A wipe covers everything else but not those, so its record can't claim Clear.  To reach them: `hdparm -N p1953525168`", true},
+		// -N can't lift a DCO, so the note mustn't send anyone there.
+		"DCO": {func(f *fake) {
+			f.cap = &model.Capacity{Method: "hdparm -N, hdparm --dco-identify", Visible: fixtureSize / 512, Native: fixtureSize / 512, DCO: fixtureSize/512 + 32}
+		}, "DCO", "overlay says it has 1,953,525,200 sectors, 32 more than it admits to (16.38 KB).  A wipe covers everything else but not those, so its record can't claim Clear.  hdparm -N can't give them back: `hdparm --yes-i-know-what-i-am-doing --dco-restore`", true},
+		// The EDGE SE847: no HPA, and a DCO one sector over (2026-10-29).
+		"DCO off by one": {func(f *fake) {
+			f.cap = &model.Capacity{Method: "hdparm -N, hdparm --dco-identify", Visible: fixtureSize / 512, Native: fixtureSize / 512, DCO: fixtureSize/512 + 1}
+		}, "DCO", "1 more than it admits to (512 B).  A wipe covers everything else", true},
+	}
+	for name, c := range cases {
+		f := drive(t)
+		f.table = model.Table{Parts: []model.Part{{Path: "/dev/sdc1", FSType: "ext4"}}}
+		c.mod(f)
+		s := Read(context.Background(), f, f.devs, ReadOpts{})
+		if len(s.Refusals) != 0 {
+			t.Errorf("%s: refused %v", name, s.Refusals)
+		}
+		var hit bool
+		for _, fd := range s.Drive.Health.Findings {
+			hit = hit || (fd.Tag == c.tag && strings.Contains(fd.Text, c.want))
+		}
+		if !hit {
+			t.Errorf("%s: findings %+v", name, s.Drive.Health.Findings)
+		}
+		if got := len(f.peeked) > 0; got != c.peek {
+			t.Errorf("%s: peeked=%v", name, got)
+		}
+	}
+}
+
+// A drive that beats udev goes read-only on a retry, and reads clean.
+func TestReadOnlyRetry(t *testing.T) {
+	roWaits = []time.Duration{0, 0}
+	f := drive(t)
+	f.table = model.Table{Parts: []model.Part{{Path: "/dev/sdc1", FSType: "ext4"}}}
+	f.roFails = 1
+	s := Read(context.Background(), f, f.devs, ReadOpts{})
+	if !s.Drive.ReadOnly || len(s.Refusals) != 0 || len(f.peeked) == 0 {
+		t.Errorf("ro=%v refusals %v peeked %v", s.Drive.ReadOnly, s.Refusals, f.peeked)
 	}
 }
 
