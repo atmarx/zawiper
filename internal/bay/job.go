@@ -15,6 +15,7 @@ import (
 
 	"github.com/atmarx/zawiper/internal/grade"
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/records"
 	"github.com/atmarx/zawiper/internal/smart"
 	"github.com/atmarx/zawiper/internal/wipe"
@@ -32,6 +33,10 @@ type job struct {
 	t0     time.Time // when the write pass began, for the ETA
 	cancel context.CancelCauseFunc
 	done   chan struct{}
+	// A load: the set it was confirmed with, and the partition it made.
+	set  *payload.Set
+	part string
+	heat *heat
 }
 
 // ending is why a job stopped short: the evidence a person reads first, and
@@ -66,9 +71,15 @@ func (b *Bay) Wipe(serial string, session time.Time) error {
 	if err := b.mayWipe(serial, session); err != nil {
 		return err
 	}
-	j := &job{dev: b.dev, read: b.snap, block: cmp.Or(b.Block, wipe.Block), done: make(chan struct{})}
+	return b.start(serial, "wipe", nil)
+}
+
+// start begins a job the caller has checked.  The caller holds b.mu.
+func (b *Bay) start(serial, kind string, set *payload.Set) error {
+	j := &job{dev: b.dev, read: b.snap, block: cmp.Or(b.Block, wipe.Block), done: make(chan struct{}), set: set}
+	j.heat = b.newHeat(j)
 	j.cells = bytes.Repeat([]byte{model.CellTodo}, int((j.dev.Size+j.block-1)/j.block))
-	live := &model.Job{Kind: "wipe", Phase: "smart-before", Serial: serial, Session: b.snap.Session,
+	live := &model.Job{Kind: kind, Phase: "smart-before", Serial: serial, Session: b.snap.Session,
 		Started: time.Now().UTC(), Map: string(j.cells), Total: j.dev.Size, TempC: b.snap.Drive.SMART.TempC}
 	if err := b.saveBefore(j); err != nil {
 		return fmt.Errorf("Couldn't write the job's state (%v), so a power cut would leave no trace of the job.  Not starting.", err)
@@ -85,6 +96,9 @@ func (b *Bay) Wipe(serial string, session time.Time) error {
 	b.job = j
 	s := b.snap
 	s.State, s.Message, s.Job = model.Running, "Wiping.  Do not pull the drive.", live
+	if set != nil {
+		s.Message = "Wiping and loading.  Do not pull the drive."
+	}
 	b.set(s)
 	go b.run(ctx, j)
 	return nil
@@ -136,16 +150,24 @@ func (b *Bay) run(ctx context.Context, j *job) {
 		b.finish(j, failed("Couldn't clear the read-only flag on %s, so nothing was written: %v", j.dev.Path, err), nil)
 		return
 	}
-	w := &wipe.Job{Path: j.dev.Path, Size: j.dev.Size, Direct: b.Direct,
+	w := &wipe.Job{Path: j.dev.Path, Size: j.dev.Size, Direct: b.Direct, Sample: j.set != nil,
 		Block: j.block, Buf: b.Buf, CheckEvery: b.CheckEvery,
 		OnStart: func(pass string, i, n int) { b.blockStart(j, pass, i) },
 		OnCell:  func(pass string, i, n int, c wipe.Cell) { b.blockDone(j, pass, i, c) },
 		OnBytes: func(pass string, done int64) { b.moved(j, pass, done) },
 		Check:   func(off int64) error { return b.checkIdentity(ctx, j, off) },
+		Wait:    func(ctx context.Context) time.Duration { return b.coolOff(ctx, j) },
 	}
 	res, err := w.Run(ctx)
-	if err := b.Src.Forget(j.dev); err != nil {
-		log.Printf("job: forgetting the partition table: %v", err)
+	if rerr := b.Src.Forget(j.dev); rerr != nil {
+		log.Printf("job: forgetting the partition table: %v", rerr)
+	}
+	// The overwrite proved itself, so the load carries on from it.  A wipe
+	// that didn't goes straight to its record.
+	var loaded *payload.Result
+	var loadEnd *ending
+	if j.set != nil && err == nil && res != nil && res.OK() && ctx.Err() == nil {
+		loaded, loadEnd = b.runLoad(ctx, j, res)
 	}
 	if err := b.Src.SetRO(j.dev); err != nil {
 		log.Printf("job: setting read-only again: %v", err)
@@ -160,12 +182,20 @@ func (b *Bay) run(ctx context.Context, j *job) {
 	if end == nil && err != nil {
 		end = failed("Couldn't open %s to write, so nothing was written: %v", j.dev.Path, err)
 	}
-	b.finish(j, end, res)
+	if end == nil {
+		end = loadEnd
+	}
+	b.conclude(j, end, res, loaded)
 }
 
 // finish reads SMART after a wipe that ran to the end, grades, files the
 // record, and ends the job.  end is nil when nothing stopped it early.
 func (b *Bay) finish(j *job, end *ending, res *wipe.Result) {
+	b.conclude(j, end, res, nil)
+}
+
+// conclude is finish with a load's result, when there was a load.
+func (b *Bay) conclude(j *job, end *ending, res *wipe.Result, loaded *payload.Result) {
 	serial := j.read.Drive.Serial()
 	before := j.read.Drive.SMART
 	raw := map[string][]byte{}
@@ -190,9 +220,19 @@ func (b *Bay) finish(j *job, end *ending, res *wipe.Result) {
 
 	b.setPhase(j, "record")
 	health := grade.Wipe(before, after, res)
+	if j.heat.pauses > 0 {
+		health.Add(smart.Finding{Tag: "PAUSED", Value: records.Took(j.heat.waited), About: smart.Job,
+			Text: fmt.Sprintf("The job waited %s for the drive to cool, over %d pause%s.", records.Took(j.heat.waited), j.heat.pauses, plural(j.heat.pauses))})
+	}
 	if end != nil {
 		health.Lead(smart.Finding{Tag: "ENDED", Value: string(end.state), About: smart.Job,
 			Text: fmt.Sprintf("The job ended %s: %s", end.state, end.evidence)})
+	}
+	if j.heat.peak == 0 && res != nil && res.Written > 0 {
+		// Never paused, because it never knew.  Say so, or a clean record
+		// would imply the drive was watched.
+		health.Add(smart.Finding{Tag: "NO-TEMP", About: smart.Bridge,
+			Text: "The temperature never read during this job, so nothing was holding the drive under its ceiling."})
 	}
 	drive := *j.read.Drive
 	if after != nil {
@@ -202,7 +242,19 @@ func (b *Bay) finish(j *job, end *ending, res *wipe.Result) {
 	rec := &records.Record{
 		Serial: serial, Started: j.read.Session, Finished: time.Now().UTC(),
 		Host: b.Host, Bay: b.Name, Software: b.Software,
-		Drive: drive, Health: health, Wrote: res != nil && res.Written > 0, Wipe: res, Before: before,
+		Drive: drive, Health: health, Wrote: res != nil && res.Written > 0, Wipe: res, Before: before, Load: loaded, Heat: j.heat.record(),
+	}
+	if loaded != nil && end == nil {
+		// The drive's copy matches what goes to the hub, so its signature
+		// checks the copy too.
+		rec.Schema, rec.Kind, rec.ID = records.Schema, "wipe", records.RecordID(rec.Started, "wipe")
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		if err := b.recordOnDrive(ctx, j, rec); err != nil {
+			log.Printf("job: the record on the drive: %v", err)
+			rec.Health.Add(smart.Finding{Tag: "NO-COPY", About: smart.Job,
+				Text: fmt.Sprintf("The drive doesn't have its copy of this record: %v", err)})
+		}
+		cancel()
 	}
 	if err := b.Spool.SaveWipe(rec, raw); err != nil {
 		log.Printf("job: record: %v", err)
@@ -274,6 +326,9 @@ func (b *Bay) end(j *job, e *ending, recID string, drive *model.Drive, res *wipe
 	live := *b.snap.Job
 	live.Ended, live.RecordID, live.Map = time.Now().UTC(), recID, string(finalMap(j.cells, res))
 	state, msg := model.Done, fmt.Sprintf("Wiped and verified.  Grade: %s.", drive.Health.Grade)
+	if j.set != nil {
+		msg = fmt.Sprintf("Wiped, loaded with %s, and verified.  Grade: %s.", j.set.Name, drive.Health.Grade)
+	}
 	if e != nil {
 		state, msg, live.Evidence = e.state, e.evidence, e.evidence
 	}
@@ -377,8 +432,11 @@ func (b *Bay) moved(j *job, pass string, done int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	live, size := b.snap.Job, j.dev.Size
-	if pass == "verify" {
+	switch pass {
+	case "verify":
 		done += size
+	case "sample":
+		return // a few thousand blocks: the bar stays where the write left it
 	}
 	if done > live.Done {
 		live.Done = done
@@ -737,6 +795,9 @@ func (b *Bay) saveInterrupted() error {
 		log.Printf("ack: no record of the read the job started from: %v", err)
 	}
 	rec.Wipe = partial(live, block)
+	if live.PeakC > 0 || live.WaitedS > 0 {
+		rec.Heat = &records.Heat{PeakC: live.PeakC, WaitedS: live.WaitedS}
+	}
 	rec.Health = grade.Wipe(rec.Before, nil, rec.Wipe)
 	rec.Health.Lead(smart.Finding{Tag: "INTERRUPTED", About: smart.Job, Text: interruptedNote})
 	rec.Drive.Health = rec.Health
@@ -752,6 +813,9 @@ func partial(j *model.Job, block int64) *wipe.Result {
 	r := &wipe.Result{Method: wipe.Method, Size: j.Total, Block: block, Started: j.Started, Bad: j.Bad,
 		Written: min(j.Done, j.Total), Checked: max(0, j.Done-j.Total-j.Bad),
 		Aborted: fmt.Sprintf("stopped when bayd or its host went down, during the %s phase", cmp.Or(j.Phase, "first"))}
+	if j.Kind == "load" {
+		r.Checked = 0 // past the overwrite, Done counts the load, not a read-back
+	}
 	for _, c := range []byte(j.Map) {
 		var cell wipe.Cell
 		if c == model.CellBad {

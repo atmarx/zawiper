@@ -64,7 +64,7 @@ func Text(b hub.Bay, now time.Time) string {
 
 // passes is the order a job's phases come in.  The write is third and the
 // read-back fourth.
-var passes = map[string]int{"": 0, "smart-before": 1, "erase": 2, "write": 3, "verify": 4, "smart-after": 5, "record": 6}
+var passes = map[string]int{"": 0, "smart-before": 1, "erase": 2, "write": 3, "verify": 4, "sample": 4, "format": 4, "load": 4, "stamp": 4, "ballast": 4, "read": 4, "smart-after": 5, "record": 6}
 
 // transcript is a bay's text as lines that only ever grow while one job
 // runs, and the one line that's still moving (live), so a follower can
@@ -137,13 +137,16 @@ func transcript(b hub.Bay) (lines []string, live string) {
 	if at >= passes["write"] || j.Done > 0 {
 		step("write", PhaseWords("write")+"... "+pct(min(j.Done, j.Total)))
 	}
-	if at >= passes["verify"] {
+	if at >= passes["verify"] && j.Kind != "load" {
 		step("verify", PhaseWords("verify")+"... "+pct(j.Done-j.Total))
 	}
-	if running && at > passes["verify"] {
+	if running && (at > passes["verify"] || j.Kind == "load" && at == passes["verify"]) {
 		step(j.Phase, PhaseWords(j.Phase)+"...")
 	}
 	if running {
+		if j.Paused {
+			live = PausedWords(j) + "..."
+		}
 		return lines, live
 	}
 

@@ -1,12 +1,13 @@
 # Za Wiper — drive bays that read, wipe, prove, and sometimes fill with an Ark
 
-Spec v0.5, 2026-10-29.  Idea and name: xram.  Written with Zim, an AI collaborator (Claude); the calls are xram's, marked with a name and a date.
+Spec v0.6, 2026-11-01.  Idea and name: xram.  Written with Zim, an AI collaborator (Claude); the calls are xram's, marked with a name and a date.
 
 - **v0.1** (2026-10-09): one bay, read and wipe, for The Ark.
 - **v0.2** (2026-10-23): the decisions in §2.
 - **v0.3** (2026-10-24): many bays on many hosts behind one hub, the record as a certificate, one shared view with no abort, and each bay's scope enforced by the kernel.  The first real wipe ran that day.
 - **v0.4** (2026-10-27): its own repo, and nothing in it tied to one deployment.  Bring-up is `docs/bringup.md`; day-to-day is `docs/operating.md`.
 - **v0.5** (2026-10-29): health under load, with tags on every note (§6.4, §6.6); Purge for flash, through sanitize where the bridge passes it (§6.7); and two more things the docks taught us (§3).
+- **v0.6** (2026-11-01): Load takes any payload, not just an Ark, and stays hidden until it's configured.  One sampled read-back replaces the full one before a load, and a full read of the finished drive replaces the file check (§6.3).
 
 ## 1. What it is
 
@@ -54,7 +55,7 @@ The page is for a private network.  A single-operator hub has no login; an insti
 | Who sees it | The private network the hub serves.  The record ships as print, PDF or `proof.zip`, matched to the serial. |
 | Confirmation | No typed serial, no hold-to-arm, no countdown.  Show the filesystems found and how much file data they hold, then one deliberate confirm. |
 | On insert | Read-only facts load automatically.  The button is Re-read. |
-| Jobs | **Wipe**, and **Wipe + Load** (an Ark loadout). |
+| Jobs | **Wipe**, and **Wipe + Load** where a payload is configured (§6.3). |
 | After | Searchable list of serials → click → results. |
 | Storage | Files per drive (§7).  The list is built by scanning them, so no database is needed at this scale. |
 | While it runs | **One shared view.**  Everyone who opens the page sees the same thing, and nothing on it belongs to anyone's session. |
@@ -64,7 +65,7 @@ The page is for a private network.  A single-operator hub has no login; an insti
 | Many bays | One web interface, many bays, like OSDs in Ceph.  Each bay checks in and can take disks.  One hub (`zaweb` plus the records) talks to all of them.  A drive's history follows its identity, not the dock it was in (§8). |
 | Scope | A USB-SATA dock, a USB-SAS adapter, and a port on a SAS card all work the same way.  Each bay's service is scoped to one device, by USB port or hardware ID.  What's in its config is what it can touch, and nothing else. |
 | Who it's for | Two shapes of deployment, one codebase.  **One operator:** no login, drives for sale.  **An institution:** OIDC sign-in, custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for drives that can't be wiped.  **Who can run a bay is set per host; who can watch is everyone** (xram, 2026-10-27; per host since 2026-10-30): each dock host belongs to one group, allowed to wipe, ack and eject at every bay on it, matched against the sign-in's group claim (a Keycloak group, a Globus group, an AD group, whatever the identity provider carries).  The hub keeps the host-to-group list, not the bay's own config, so a dock host can't move itself into another department.  Anyone signed in can watch the whole wall, search any serial across the organization, and see its history: every job, and the host and bay that ran it.  **Departments on the board, never people** (xram, 2026-10-30): the board and the anonymous pulse show departments (a host's group), never the person who ran a job.  Who ran it stays in the record, for audit.  A department with fewer than three operators is folded into "other", so the board can't name a person by elimination.  The board is trends over time to look at and share, not a contest to win: someone gets bragging rights, nobody chases points.  Its first questions (xram, 2026-10-30): which departments wiped the most drives, and the most TB, over the past day, month and year.  Proposed beside them: days at risk (retired to certified) and dying drives caught.  Records from before a host had a group count under the host.  The code stays brand-free; each deployment's identity, groups and certificate letterhead live in its own config. |
-| Load payload | The hub serves staging, and `bayd` pulls it over plain HTTP with range requests.  No tusd, and no network mount on dock hosts.  Sending a loadout over the network twice is fine. |
+| Load payload | The hub serves a payload folder, and the bay pulls it over mutual TLS with range requests.  No tusd, and no network mount on dock hosts.  Sending a payload over the network twice is fine. |
 
 ## 3. Hardware: what the first docks taught us
 
@@ -82,6 +83,7 @@ The first dock was a two-slot USB 3 caddy on an ASMedia ASM1156-PM bridge: first
 - **A bridge that passes IDENTIFY can still block SANITIZE (2026-10-29).**  A Crucial MX500 on the Insignia NS-PACS2B25 (a bare USB-C-to-SATA cable for 2.5" drives, no case) listed the SANITIZE feature set, BLOCK ERASE and CRYPTO SCRAMBLE, but `hdparm --sanitize-status` came back `Input/output error`, reason not reported.  The same bridge passes SMART, so it's refusing the command, not the replies.  Sanitize support belongs to the drive and the bridge together, and a bay asks before it offers Purge (§6.7).
 - **Old RAID members come in every flavour.**  The same MX500 was an md member, and mdadm on a dock host still running the v0.3 rules assembled a stray, inactive `md127` around it; the bay refused it as in use, as it should.  The rules from 2026-10-27 stop that.  The ST2000DM001 carried Dell PERC metadata (`ddf_raid_member`), which is just a label to overwrite.
 - **A DCO can disagree with the drive by one (2026-10-29).**  An EDGE SE847 SSD (256 GB) on the Insignia cable: `hdparm -N` said 500,118,192 of 500,118,192, HPA disabled; `--dco-identify` said 500,118,193.  The bay refused it for one hidden sector and told xram to run `hdparm -N p500118193`, which can't work: -N only lifts an HPA, never past the native size, and the drive said `SET_MAX_ADDRESS_EXT failed`.  The refusal now tells an HPA from a DCO and gives each its own fix.  Still open: a gap of exactly one is what firmware produces when it fills in DCO IDENTIFY with a sector count where the standard asks for the last address, and a DCO restore that leaves it in place would prove that's all it is.  On 2026-11-09 the restore didn't get that far: through the same cable, `hdparm --dco-restore` failed with `HDIO_DRIVE_CMD(dco_restore) failed: Input/output error`, so the bridge won't pass it.  Hidden sectors are now a finding, not a refusal (below).
+- **A bridge can lose the top of a 48-bit reply (2026-11-02).**  A USB 2 dock passed SMART, listed the SANITIZE feature set and answered `hdparm --sanitize-status` with `SD0 Sanitize Idle`, for a 12 TB Ultrastar and the EDGE SE847.  But `hdparm -N` on the SE847 said 500,118,192 of 13,578,928, and 13,578,928 is exactly the low 24 bits of 500,118,192.  It read the same after power-cycling the dock, and the same drive reads whole on the Insignia cable, so the dock is dropping the high-order registers.  hdparm reads the sanitize state from those same registers (`hob.nsect`) and calls zero Idle, so this dock's Idle may mean nothing, and it might never show a sanitize running or finished.  `bayd` now treats a native size under the visible one as a bridge fault rather than hidden sectors.  The gap of one on the SE847 showed up on this bridge too, through `--dco-identify`, which points at the drive rather than the cable.
 - **Hidden sectors are a note, not a refusal (xram, 2026-11-09).**  "I don't want the perfect to be the enemy of the good enough."  A bay that refuses an HPA or DCO it can't lift through the bridge leaves the drive unwiped, which is worse than a wipe that reaches everything but those sectors.  So the drive gets a `HPA` or `DCO` pill with the count, the wipe runs, and the record claims no level and says why.  The same goes for a failing drive: a wipe is never blocked by the grade.
 - **The device filter lags the partitions (2026-11-09).**  On the first read after an insert, `blockdev --setro` on a partition failed with `EPERM`: udev hadn't yet added the partition's node to the bay's `DeviceAllow`.  bayd retries for a few seconds.  If the partitions still can't be set read-only, the peek is skipped and the card says so (`NO-PEEK`), rather than refusing the drive.
 - **A USB-to-SAS bridge that pretends (2026-11-07).**  An EC-5351 (`6711:6711`), a $70 USB 3 to SAS adapter, presents a SAS drive as SATA through SAT emulation.  The serial comes back padded (`3TB0B5DR` as `3TB0B5DR000000000001`), the WWN is real, and SMART is the bridge's imitation: no grown defect list, no error counters.  `smartctl -d sat -a` works.  `smartctl -x` hangs the bridge's firmware; the host's xHCI logged "HC probably busted", and only a power cycle brought the bridge back.  Rejected, in favour of a SAS HBA in IT mode (§11).
@@ -114,7 +116,7 @@ The visible part is one confirm.  The real guards are the ones that never show u
 
 - **"Found on it" comes from a read-only peek.**  It lists the signature scan, then mounts each recognized filesystem `ro,noexec,nosuid,nodev` (plus `noload` for ext4) in a throwaway mount namespace, measures used space, and unmounts.
 - **"Nothing found" is said plainly:** "No partition table, no filesystems.  Looks blank already."
-- **Backup drives get flagged.**  A label starting with `backup-`, a restic repository, or a PBS datastore turns the card amber, and the confirm button reads **Erase this backup drive**.  md, LVM and ZFS members get the same flag, since they could be holding anything.  The bays' udev rules blank `ID_FS_TYPE` on bay devices, so a dock host with mdadm or LVM installed never assembles a bay drive's array: it stays a drive to wipe (xram, 2026-10-27).  Backup rotation drives often go through the same docks, so this costs nothing and catches the 2 a.m. mistake.
+- **Backup drives get flagged.**  A label starting with `backup-` or on the bay's `warn_labels` list, a restic repository, a PBS datastore, or a load's stamp or ballast turns the card amber, and the confirm button reads **Erase this backup drive**.  md, LVM and ZFS members get the same flag, since they could be holding anything.  The bays' udev rules blank `ID_FS_TYPE` on bay devices, so a dock host with mdadm or LVM installed never assembles a bay drive's array: it stays a drive to wipe (xram, 2026-10-27).  Backup rotation drives often go through the same docks, so this costs nothing and catches the 2 a.m. mistake.
 - **The confirm resets if the drive's facts change** while it's on screen.
 
 ### 4.3 The page itself
@@ -140,7 +142,7 @@ EMPTY ─insert─► READING ─► PRESENT ─confirm─► RUNNING ─► DON
 |---|---|
 | `EMPTY` | "Nothing in the bay." Search box, last few drives. |
 | `READING` | The step it's on and when that started ("Asking SMART (smartctl), since 09:34:35."), so a hung drive shows up as a step that doesn't end.  A drive that doesn't answer SMART, or disagrees with the bridge about its size, gets no further reads: it can't be filed or wiped, and every command it times out stalls the bridge. |
-| `PRESENT` | Drive card, Re-read, Wipe, Wipe + Load. |
+| `PRESENT` | Drive card, Re-read, Wipe, and Wipe + Load when the hub has payloads and the bay has `load`. |
 | `RUNNING` | **Do not pull the drive.**  "Once started, this process cannot be stopped from here."  The surface map (§6.5), phase, MB/s, ETA, temperature, errors, bayd's CPU and the host's.  A speed scale (slow, 5400, 7200, 10k, 15k, SSD, NVMe, fast) marks the current rate, shades what the slower of the USB and SATA links can't reach, and guesses the drive's kind from its peak, beside what SMART claims (xram, 2026-10-27).  No buttons. |
 | `DONE` | Grade, headline numbers, link to the record, Eject. |
 | `FAILED` | The evidence first: phase, offset, what the drive said. |
@@ -168,23 +170,58 @@ Identity, SMART attributes and logs, the signature scan, and the read-only peek 
 
 ### 6.3 Wipe + Load
 
-Phases 1–5 of Wipe, then the load.  The payload comes from the hub, not from a network mount on the dock host:
-- **The hub serves staging read-only over HTTP,** following The Ark's staging symlink farm.  It holds the staging mount; dock hosts never see it.
-- **First comes the loadout's list:** files, sizes, and each ZIM's SHA-256 from Kiwix's `.meta4`.  `bayd` checks that it fits before writing anything.
-- **`bayd` pulls each file onto the target drive.**  A dropped connection resumes with a range request from the partial file's length.  The partial file is the bookmark, so nothing is staged twice.
-- **The load is checked against Kiwix's hashes,** not against the transfer.  So one check catches a bad link, a bad cable, and a bad sector alike.
-- **On cost:** every byte crosses the network twice, staging → hub → dock.  That's accepted: one bay over gigabit runs about as fast as a drive writes, and loads are rare.
+A wipe that leaves something behind on purpose.  Za Wiper knows nothing about what: **a payload is a list of files with hashes** (xram, 2026-11-01).  An Ark is one, a folder of ISOs is another, and neither is special.
+
+**Hidden until it's set up.**  `ZAWIPER_PAYLOADS` in the hub's `.env` names a read-only folder.  Unset, there's no button, no route, and nothing on a record about payloads.  A bay also needs `load` in its `caps`.  Set but missing or unparseable is a loud error on the page, because a button that quietly disappears after a NAS mount fails is worse than no button.
+
+**The options file** is `payloads.txt` at the top of that folder, written by `zpayload` or by whatever builds the payload (The Ark's `ark payloads`).  Plain text with no dependencies, so a person can read it and `sha256sum` can check it:
+
+```
+# one or more sets
+set mega
+  description The full medium loadout plus Stack Overflow
+  label THE-ARK
+  filesystem exfat
+  file 9f86d081…  19276733775  zim/wikisource_en_all_maxi_2026-02.zim
+  file 60303ae2…  1170         README.txt
+```
+
+- **Paths are relative and stay inside the folder.**  `..`, absolute paths and names exFAT can't hold fail the whole file.  The hub serves only files a set lists, and `bayd` checks each path again before it writes.  A symlink is followed, because The Ark's staging is built from them, but only the listed name is reachable.
+- **`filesystem` is `exfat`, and only `exfat` for now** (xram, 2026-11-01): it opens nearly everywhere, nothing arrives marked executable, and its lack of journal and checksums is covered by the hashes.  The field is there so the format can grow.  ext4 keeps writing metadata after its first mount, which is the wrong surprise on a certified drive.
+- **Files only, never bootable** (xram, 2026-11-01).  A disk image would replace the filesystem, the ballast and the stamp, and the proof with them.
+- **exFAT drops symlinks and permissions without a word,** so `zpayload` warns when a folder relies on either, and says to put them in a tar or zip.
+
+**The page picks the biggest set that fits** and shows it on the confirm, and the operator can choose a smaller one.  Nothing starts by itself.  "Fits" is the set's bytes plus the filesystem's overhead and the reserve, with a margin, since nothing can measure a filesystem that doesn't exist yet.  A start carries the set's name and the hash of its list as well as the drive and insertion (§4), so a file that changed after the confirm fails closed.
+
+**How the bytes cross the wall.**  `bayd` has no network and the link has no devices, and Load doesn't change that:
+- The hub serves payloads on a second mutual-TLS port (8462), to the same bay certificates, with range requests.
+- `bayd-link` listens on a unix socket, `/run/zawiper-link/<bay>/payload.sock`, and passes `bayd` the bytes it asks for.  It holds them for no longer than the copy takes.
+- `bayd` checks every file against the list's hash, so a bad link, a bad cable, a bad sector and a dishonest hub all fail the same way.  The worst a hub can do is send a file that fails its check.  A dropped connection resumes from the partial file's length.
 
 | # | Phase | Notes |
 |---|---|---|
-| 6 | Partition and format | exFAT, label `THE-ARK`. |
-| 7 | **Load** | Pull the chosen loadout from the hub, plus `--pack=` if one is picked.  The page only offers loadouts that fit the drive. |
-| 8 | **Verify the load** | Unmount, remount, re-read every file, and compare its SHA-256 with Kiwix's. |
-| 9 | Records on the drive | `ZA-WIPER.txt` (the human copy, with the viper on top) and `ZA-WIPER.json`. |
-| 10 | **Ballast** | Keystream into `DELETE_THIS_IF_YOU_NEED_SPACE` until `ENOSPC`, then check that a 1-byte write fails too.  The final record goes into a 16 MiB reserve freed at the end. |
-| 11 | Sync, unmount, eject | |
+| 1 | SMART before | As in a wipe. |
+| 2 | Firmware erase | As in a wipe, once it's built. |
+| 3 | **Overwrite** | Every sector, with the keystream. |
+| 4 | **Sampled read-back** | Two random 4 KiB blocks in each of 10,000 sections, plus the first and last, against the keystream (IEEE 2883 §7.3).  Minutes, not hours (xram, 2026-11-01).  This is the verification the Clear rests on, and it catches a drive lying about its size or badly failing before hours of load.  The seed goes in the record, and the offsets follow from it. |
+| 5 | Partition and format | One GPT partition; the set's filesystem and label. |
+| 6 | **Load** | Pull each file through the link and hash it on the way down. |
+| 7 | **Stamp** | `ZA-WIPER.txt` for people and `ZA-WIPER-FILES.txt`, the set's list as loaded, so whoever holds the drive can check it without us. |
+| 8 | **Ballast** | Keystream into `DELETE_THIS_IF_YOU_NEED_SPACE` until `ENOSPC`, leaving a 16 MiB reserve free for the record.  Keystream and not zeros: zeros are what a lying drive or a trimmed SSD returns without storing anything. |
+| 9 | **Full read** | Unmount, remount read-only, then read every file against its hash and the whole ballast against the keystream (xram, 2026-11-01).  Against the list, never the source again: comparing with a NAS copy that had rotted would pass the rotted file. |
+| 10 | SMART after, grade | As in a wipe. |
+| 11 | Records on the drive | `ZA-WIPER.json`, written into the reserve after the last read, so it's the one file nothing has verified.  The record says so. |
+| 12 | Sync, unmount | |
 
-The payload source is the staging symlink farm, so the copy follows links (`--copy-links` semantics).  It copies **what the manifest names**, including held builds like the Wikisource ones, which is the opposite of today's `ark stamp` filter (§9).
+**Why not the full read-back first.**  It's a whole pass that the final read mostly repeats.  A plain Wipe still does it, and stays the job for resale and for audits (§1): every sector read back, re-checkable by anyone.
+
+**What a loaded drive's certificate says, and doesn't** (xram, 2026-11-01):
+- Method: "One keystream overwrite, verified by sampling (IEEE 2883 §7.3).  Then loaded."  Never "every sector", and never "cryptographic erase": what we do is an overwrite, and Cryptographic Erase is a technique of its own.
+- What's on it: set name, file count, and the hash of the list.  Filenames stay off the certificate and the public record by default, since a department's payload may be private.  The full list is on the drive.
+- What was verified: bytes of files and ballast read, out of the drive's total.  Filesystem metadata and the tails of each file's last cluster aren't in that number.
+- What can be re-checked: the files and ballast, by anyone holding the drive, with `zverify`.  The load overwrites most of what was sampled, so that step rests on our signature, and the record says that too.  The key still checks the ballast, so it stays in the record, though it comes off the printed sheet.
+- `zverify` tells a changed drive from a bad one: a deleted ballast or an added file is someone using their drive.  A file whose hash doesn't match is the failure.
+- Flash still gets no level from the overwrite (§1), loaded or not.
 
 ### 6.4 Grade
 
@@ -252,7 +289,7 @@ The wipe is already the stress test: every sector written and read back, for hou
 2. **The speed curve,** each block's MB/s across the disk, which the wall's Throughput box already draws.  A healthy spinning drive falls smoothly to about half by the inner tracks; dips and spikes are the trouble.  The record gets it as a graph.
 3. **Temperature through the job, and a ceiling.**  `bayd` reads SMART temperature once a minute and keeps the curve.  It backs off if a SMART read stalls, since this dock has reset under SMART traffic.  Drives that keep an SCT temperature history give it up once, at the end.
 
-   **A bay treats a drive as well as a case with airflow would** (xram, 2026-10-29).  A bay may wipe hundreds of drives, and none should come out older than the wipe has to make it.  So the job has a ceiling: the drive's own recommended maximum where SCT reports one, else 55 °C for a spinning drive and 65 °C for flash, and a bay's config can set it lower.  Over it, `bayd` pauses between buffers until the drive is 5 °C under, then carries on.  A wipe isn't a race; a paused one proves the same.  The record keeps the curve, the peak, and how long the job waited for the drive to cool.
+   **A bay treats a drive as well as a case with airflow would** (xram, 2026-10-29).  A bay may wipe hundreds of drives, and none should come out older than the wipe has to make it.  So the job has a ceiling: NVMe's warning threshold where it has one, else 55 °C for a spinning drive and 65 °C for flash.  SCT's recommended maximum and a bay's config (`temp_ceiling`) can only lower it, since drives report numbers like 80 °C for a spinning laptop disk that lives its life under 53.  Over it, `bayd` pauses between buffers until the drive is 5 °C under, then carries on.  It covers every phase of a job, the load's included, and a pause stays out of the block timings, so it can't read as a weak spot.  If the temperature stops reading for 10 minutes while waiting, the job carries on and the record says so.  A wipe isn't a race; a paused one proves the same.  The record keeps the curve, the peak, and how long the job waited for the drive to cool.
 
    Heat during a job is mostly where the bay puts the drive, so a job that had to wait is a cyan `PAUSED 12 min` against the bay, not the drive.  `HOT` stays a note against the drive when it arrives hot, or when it runs hotter than others of its model in the same bay (the hub's comparison, below).
 
@@ -271,7 +308,7 @@ A wipe becomes: read → confirm → self-test → fio → overwrite → read-ba
 
 An overwrite gives flash no level (§1), and an SSD can't be checked cell by cell: spare and retired blocks sit behind the controller and never appear in a read.  So the level has to come from the drive's own command, completed (xram, 2026-10-29).
 
-1. **Ask first.**  Before offering Purge, `bayd` sends SANITIZE STATUS, which changes nothing.  An error means this bridge won't carry it, and the bay offers the overwrite only, with a record that says why.
+1. **Ask first.**  Before offering Purge, `bayd` sends SANITIZE STATUS, which changes nothing.  An error means this bridge won't carry it, and the bay offers the overwrite only, with a record that says why.  So does a bridge that garbles 48-bit replies (§3), since SANITIZE STATUS answers in those registers: an Idle from it can't be told from silence, and Purge needs to see the drive report done.
 2. **Crypto scramble, then block erase.**  The scramble throws away the key a self-encrypting drive keeps all its data under.  A crypto erase is only as good as the vendor's firmware, and drive encryption has been caught short before (Crucial MX100–MX300 and Samsung, Radboud University, 2018).  The block erase doesn't depend on it, and leaves a pattern a read can check.  Sanitize runs in the background, survives a bridge reset, and needs no password; that's why it, and not Security Erase, is the route.
 3. **Poll SANITIZE STATUS until it reports done.**  Purge only if both commands report success.
 4. **Read every block back** against the drive's post-erase pattern.  One byte off fails it.  A clean read-back is evidence, not the level: a drive can return zeros because its map was cleared while the old data still sits in the chips.
@@ -315,7 +352,7 @@ Where the bridge won't pass sanitize, an SSD gets steps 4–6 on top of the over
   - the SMART before/after diff
   - per-block timings (the surface map)
   - the grade, and the rule that produced it
-  - loadout and verify results, for a Load job
+  - the payload, the sampled read-back and the verify results, for a Load job (§6.3)
   - the keystream parameters
   - Za Wiper's version and git SHA
 - **The keystream key is published, on purpose.**  A buyer can regenerate the stream and read the drive back against it, so they can confirm the wipe without trusting us.  Publishing the key loses nothing: the old data is gone whether or not the noise can be reproduced.  `zwipe` 2026-10-24 kept its key in memory only.  That's the one thing this changes in the engine.
@@ -348,23 +385,23 @@ Where the bridge won't pass sanitize, an SSD gets steps 4–6 on top of the over
  └────────────────────────┘  │  TLS   │ zaweb                      │
  ┌────────────────────────┐  ├───────►│  · the wall of bays        │
  │ bay C                  │──┤ dial   │  · records, by drive       │
- └────────────────────────┘  │ out    │  · staging, read-only      │
+ └────────────────────────┘  │ out    │  · payloads, read-only     │
  ┌────────────────────────┐  │        └────────────────────────────┘
  │ bay D (SAS HBA port)   │──┘
  └────────────────────────┘
 ```
 
 - **`bayd`, one per bay**, the way Ceph runs one OSD per disk.  Go, a static binary, systemd, no Docker.  Each bay is two template units, with the network side and the disk side kept apart:
-  - **`bayd-link@<bay>`** is always running.  It holds the TLS connection, the heartbeat, and the spool of finished records.  For Load, it pulls the payload from the hub.  It has no device access at all (`DevicePolicy=closed`, nothing allowed), so the hub, and anyone who owns the hub, reaches the disk only through the next unit's checks.
+  - **`bayd-link@<bay>`** is always running.  It holds the TLS connection, the heartbeat, and the spool of finished records.  For Load, it fetches the payload from the hub and hands the bytes to the disk side over a unix socket.  It has no device access at all (`DevicePolicy=closed`, nothing allowed), so the hub, and anyone who owns the hub, reaches the disk only through the next unit's checks.
   - **`bayd@<bay>`** is the disk side.  udev starts it when the selector's device appears, and it's bound to that device (`BindsTo=`), so it stops when the drive leaves.  `DeviceAllow=` is resolved fresh on every insert, which sidesteps a re-inserted drive getting a new minor number.  When that goes wrong anyway, `bayd` restarts once to rebuild it (§3).  It has no network (`IPAddressDeny=any`, unix sockets only).  It owns the read, the keystream writer and reader, the mounts, and the job, and it talks to its link over a unix socket in `/run/zawiper/<bay>/`.
   - A running job needs nothing from the link or the hub.  Either can restart without touching it.  If the drive leaves mid-job, the link reports **INTERRUPTED** from the job's state file.
   - The wall shows a bay as empty while its link is up and its disk unit isn't running, and as offline when its link is down.
-  - `/etc/zawiper/bays/<bay>.toml` holds the selector, the SMART type (`sat` or `scsi`), and what the bay can do: `wipe`, `load`, `sas`.  A two-slot USB dock is one bay by default: its port is the selector, and the one-LUN refusal stays.  `usb_lun = "0"` and `usb_lun = "1"` split it into a bay per slot.  A swap in either slot resets both, and systemd stops the other slot's `bayd@` with its device, so a wipe running there ends INTERRUPTED and never gets a record.  Swap only when both bays are idle.
+  - `/etc/zawiper/bays/<bay>.toml` holds the selector, the SMART type (`sat`, `scsi`, or a USB-NVMe bridge's `sntjmicron`, `sntasmedia` or `sntrealtek`), and what the bay can do: `wipe`, `load`, `sas`.  A two-slot USB dock is one bay by default: its port is the selector, and the one-LUN refusal stays.  `usb_lun = "0"` and `usb_lun = "1"` split it into a bay per slot.  A swap in either slot resets both, and systemd stops the other slot's `bayd@` with its device, so a wipe running there ends INTERRUPTED and never gets a record.  Swap only when both bays are idle.
   - Commands, from the hub: `status`, `reread`, `wipe`, `load`, `ack`, `eject`.  No command takes a device, there's no "run this" command, and there's no abort (§4.3).
   - The host can be bare metal, or a VM with a whole USB or SAS controller passed through (§3: a passed-through USB device doesn't survive a swap).  A VM has the edge where it works: a mistake can't reach a hypervisor's own disks.
   - **Releases don't go through CI.**  A key that can install `bayd` can wipe whatever is in a bay.  So `bayd` ships by hand (`make bay`) or by a config-management play, run with a person's own sudo: a pinned binary, plus each bay's config and certificate.  Nothing installs it automatically.
 - **The hub, `zaweb`**: Go, unprivileged, with no devices, in a container on a backed-up host.  CI may deploy it (`.woodpecker/hub.yml` is one way).
-  - It holds the `bayd` connections, the records, and, for Load, a read-only staging mount.
+  - It holds the `bayd` connections, the records, and, for Load, a read-only payload folder.
   - It serves the wall of bays (one shared view, §4.3), the list, the records, and the certificates.  Live progress reaches browsers as server-sent events.
   - A bug in it can't write to a disk directly.  It can only send `bayd` a command, and `bayd` checks every one (§4.1).
 - **Trust:** an offline root CA, made with the `step` CLI (`deploy/ca.sh`), with no CA server.  The root key stays offline, encrypted.  The hub gets a server certificate; each bay a one-year client certificate, CN `bay/<host>/<name>`.  The hub admits any bay the root signed, so retiring a bay or a leaked key before its certificate expires needs a list of revoked fingerprints on the hub (Next, §10).
@@ -392,7 +429,7 @@ Za Wiper replaces `stamp` for drives that go through the bay, and the bugs v0.1 
 | **1 — Read-only bay** | `bayd` read path, `zaweb` drive card, Re-read, inspect records, serial list, record page with print.  Nothing can write. |
 | **2 — Wipe, networked** | The hub/`bayd` split with dial-out TLS, one `bayd` per bay.  The kernel enforces each bay's scope.  Records move to the hub.  The wipe in `bayd`, the live surface map on one shared wall, the SMART diff and the grade.  Signed certificates, with a published key and a buyer's verifier.  **Built 2026-10-25** and run end to end on a file: hub, link and `bayd` over mTLS, wipe, record to the hub, signed on arrival, checked by `zverify` and `ssh-keygen -Y verify`.  **First hardware wipe 2026-10-26:** Z1N4BVB3 (Constellation ES, 1 TB) in slot 0 of the two-slot dock, unattended, under `bayd@bay1` and its device filter.  Clear per IEEE 2883 §8.4.2.2 with full verification, every byte read back, PASS WITH NOTES (one reallocated sector, before and after).  Its signature checks out with `ssh-keygen -Y verify` against `/za-wiper.pub`.  ATA Enhanced Security Erase through the bridge was measured by hand on 2026-10-25 (§11).  Still to prove: the negative case, that `bayd@bay1` can't open the drive in `bay2`. |
 | **Next** | Read-only tests for drives you're keeping (xram, 2026-11-09): a full surface read and SMART's extended self-test, neither of which writes.  The bay's buttons become Re-Read · Surface Test · SMART Extended · Wipe · Wipe + Load, with the two wipes under a flip-up cover, like a missile switch.  A Learn page on how drives work and fail, and how each kind is wiped.  v0.5: the tags and pills (§6.4, built 2026-11-09), then health under load (§6.6), then Purge for flash (§6.7), tried first on the MX500 in the ASM1156 dock.  Purge for spinning drives through sanitize or Enhanced Security Erase, where the bay passes it (§11).  Revoked bay fingerprints on the hub.  SCSI SMART grading for SAS.  An `ata_path` selector, so a motherboard or backplane SATA port is a bay (`pci-0000:00:17.0-ata-1`, matched like `sas_path`): a desktop with every port cabled out to a drive shelf is how many groups already wipe, and it skips every USB bridge quirk in §3.  It needs AHCI hot-plug enabled per port, and drive power that can take a shelf spinning up at once (xram, 2026-10-27). |
-| **3 — Wipe + Load** | The hub serves staging; `bayd` pulls with range requests.  Format, load, verify against Kiwix's hashes, ballast, reserve, on-drive records. |
+| **3 — Wipe + Load** | Any payload, configured on the hub.  Overwrite, sampled read-back, format, load, stamp, ballast, full read of the finished drive.  A certificate that says exactly that, and `zverify` for a loaded drive. |
 | **4 — Polish** | ntfy, metrics, a backup-drive profile, a destruction note on a record. |
 | **Institutional** | OIDC sign-in, an operator group per host with an org-wide view (§2), custody fields, hash-chained records, destruction records. |
 

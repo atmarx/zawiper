@@ -39,8 +39,8 @@ const (
 	sector = 512
 	// sections is IEEE 2883 §7.3's suggested minimum number of subsections
 	// for a drive addressed by LBA.
-	sections = 10000
-	block    = 4096
+	sections = wipe.SampleSections
+	block    = wipe.SampleBlock
 	// maxRanges is how many mismatched ranges get their own line.
 	maxRanges = 20
 )
@@ -143,6 +143,9 @@ func (v *verifier) verify(recordSrc, dev, pubSrc string, samples int, full, stra
 		v.say("Record: this is a%s %q record, not a wipe.  There's nothing to check the drive against.", an(r.Kind), r.Kind)
 		return 1
 	}
+	if r.Load != nil {
+		return v.verifyLoaded(&r, dev)
+	}
 	model := "an unknown model"
 	if r.Drive.SMART != nil {
 		model = r.Drive.SMART.Model
@@ -206,23 +209,11 @@ func (v *verifier) verify(recordSrc, dev, pubSrc string, samples int, full, stra
 	return v.report(res, &r, spans, full)
 }
 
-// stratifiedSpans is IEEE 2883 §7.3's second option: the drive cut into
-// sections, two distinct random blocks from each, and the first and last
-// blocks.  The caller makes sure every section holds at least two blocks.
+// stratifiedSpans is IEEE 2883 §7.3's second option, the same a load's sampled
+// read-back takes.  The caller makes sure every section holds at least two
+// blocks.
 func stratifiedSpans(size int64) [][2]int64 {
-	blocks := size / block
-	offs := []int64{0, size - block}
-	for i := int64(0); i < sections; i++ {
-		lo, hi := blocks*i/sections, blocks*(i+1)/sections
-		a := lo + rand.Int64N(hi-lo)
-		b := lo + rand.Int64N(hi-lo-1)
-		if b >= a {
-			b++
-		}
-		offs = append(offs, a*block, b*block)
-	}
-	slices.Sort(offs)
-	offs = slices.Compact(offs)
+	offs := wipe.Spans(size, rand.Uint64())
 	out := make([][2]int64, len(offs))
 	for i, o := range offs {
 		out[i] = [2]int64{o, block}

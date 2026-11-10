@@ -32,6 +32,7 @@ That copies `site.example/` to `site/`, which git ignores.  `site/site.env` take
 ### Hardware that works, and what to avoid
 
 - **A USB-SATA bridge has to pass SMART.**  Before you build a bay around a dock, plug a drive in and run `sudo smartctl -d sat -i /dev/sdX`.  If it doesn't show the drive's real serial, the bay will refuse every drive: the serial is what a record is filed under.  `sudo hdparm -N /dev/sdX` should answer too, which is the hidden-sector check.  The ASMedia ASM1156 passes both.
+- **A USB-NVMe adapter needs its bridge named.**  Try `sudo smartctl -d sntjmicron -i /dev/sdX`, then `sntasmedia`, then `sntrealtek`, and put the one that shows the drive's real serial in `smart_type`.  An adapter that also takes M.2 SATA drives needs `sat` for those, so give it a bay for one kind.  An M.2 slot on a motherboard isn't a bay: nothing swaps there, and it sits beside the host's own disk.
 - **A multi-slot dock is one failure domain.**  To the kernel it's one SCSI host.  A drive that stops answering in one slot stalls the other, and a bridge reset takes both down.  Give each slot its own bay (`usb_lun`), swap drives only when every slot on the dock is idle, and put a suspect drive in alone.
 - **Don't pass a USB device through to a VM.**  The dock re-enumerates on every swap, and QEMU's USB passthrough doesn't survive it.  Pass through the whole controller (PCIe), or run on bare metal.
 - **SAS cards only as a plain HBA** (IT firmware, `mpt3sas`).  Behind `megaraid_sas`, one controller-wide device reaches every disk on the card, which breaks a bay's scope, so Za Wiper refuses it.
@@ -126,8 +127,10 @@ It lists each USB disk with the port it's on (`2-1`) and its LUN.  A two-slot do
 name = "bay1"
 usb_port = "2-1"            # or: sas_path = "pci-0000:03:00.0-sas-phy2-lun-0"
 usb_lun = "0"               # one slot of a multi-slot dock; leave it out for a single-slot one
-smart_type = "sat"          # sat for USB-SATA; scsi for SAS
+smart_type = "sat"          # sat for USB-SATA; scsi for SAS; sntjmicron, sntasmedia or sntrealtek for USB-NVMe
 caps = "wipe"               # leave caps out and the bay only reads
+# warn_labels = ["SPARE"]   # labels that get a backup drive's warning on the confirm
+# temp_ceiling = "50"       # a lower temperature ceiling for jobs here, in °C
 ```
 
 **Mint its certificate,** on the CA machine: `deploy/ca.sh bay lab-a bay1`.  Copy `zawiper-certs/lab-a/{ca.crt,bay1.crt,bay1.key}` to `/etc/zawiper/tls/` on the dock host: the key `root:root 0600`, the certificates `0644`.  Then delete the key from the CA machine.  The bay has it, and a bay key is what lets something speak to the hub as that bay.
@@ -192,3 +195,23 @@ Repeat §3 and §4 for each one.  A dock host can hold many bays, one per slot o
 ## Not built yet
 
 Sign-in, groups that control a bay, custody fields and hash-chained records are designed for institutional use (spec §2, §10), but not built.  Until they are, anyone who can reach the page can start a wipe in a bay that has `caps = "wipe"`.  Keep the page on a network where that's true only of the people who should.
+
+## Loading drives (optional)
+
+Wipe + Load leaves a set of files on a drive after wiping it (spec §6.3).  It's off until you turn it on, and a hub without it never mentions it.
+
+1. **Make a payload folder on the hub host,** and hash what's in it:
+
+   ```
+   zpayload -set isos -label ISOS -description "Install media" /mnt/nas/payloads
+   ```
+
+   That writes `payloads.txt` at the top of the folder.  Several sets can share one: put each in its own folder and pass `-root isos`.  `zpayload` warns about what exFAT would silently drop.  Run it again whenever the files change, because a bay refuses any file that doesn't match its hash.
+
+2. **Point the hub at it.**  In `/opt/zawiper/.env`, set `ZAWIPER_PAYLOADS=/mnt/nas/payloads`.  If the folder holds symlinks, their targets have to exist inside the container too, so mount them at the same paths in `compose.override.yml`.
+
+3. **Open port 8462 on the hub** to your dock hosts.  It's mutual TLS, with the same certificates as the link.
+
+4. **On each bay that should load:** install `gdisk` and `exfatprogs`, add `load` to its `caps`, and re-run the installer.  A bay checks for those tools before it touches a drive.  The confirm then shows Wipe + Load, with the biggest set that fits already picked.
+
+Try the first one on a drive you've written off.  Then mount it and run `zverify`.

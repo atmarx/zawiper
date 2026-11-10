@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/atmarx/zawiper/internal/hub"
 	linkpkg "github.com/atmarx/zawiper/internal/link"
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/proto"
 	"github.com/atmarx/zawiper/internal/records"
 	"github.com/atmarx/zawiper/internal/sign"
@@ -141,8 +143,97 @@ func setup(t *testing.T) (*fakeFleet, http.Handler, *model.Drive) {
 		"lab-b/sas0": {Key: "lab-b/sas0", Host: "lab-b", Name: "sas0", Online: false, Seen: t0,
 			Snap: model.Snapshot{State: model.Offline}},
 	}}
-	s := &Server{Fleet: f, Store: store, Hosts: []string{host}, Version: "test"}
+	s := &Server{Fleet: f, Store: store, Hosts: []string{host}, Version: "test", Library: testLibrary}
+	testLibrary = nil
 	return f, s.Handler(), drv
+}
+
+// testLibrary, when a test sets it, is the next setup's payload folder.
+var testLibrary *payload.Library
+
+// loadSetup is setup with a payload folder holding the sets named, of a size
+// each, and bay1 granted "load".
+func loadSetup(t *testing.T, txt string) (*fakeFleet, http.Handler) {
+	t.Helper()
+	dir := t.TempDir()
+	if txt != "" {
+		if err := os.WriteFile(filepath.Join(dir, payload.FileName), []byte(txt), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testLibrary = &payload.Library{Dir: dir}
+	f, h, _ := setup(t)
+	f.set("lab-a/bay1", func(b *hub.Bay) { b.Caps = []string{"wipe", "load"} })
+	return f, h
+}
+
+const zeroSum = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+func TestLoadIsHiddenUntilConfigured(t *testing.T) {
+	f, h, _ := setup(t)
+	f.set("lab-a/bay1", func(b *hub.Bay) { b.Caps = []string{"wipe", "load"} })
+	body := get(h, "/bays/lab-a/bay1").Body.String()
+	for _, word := range []string{"Wipe + Load", "payload", "data-load"} {
+		if strings.Contains(body, word) {
+			t.Errorf("with no payload folder the page says %q", word)
+		}
+	}
+	if w := post(h, "/api/bays/lab-a/bay1/load", `{}`, nil); w.Code != http.StatusNotFound && w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("the route exists with no payload folder: %d", w.Code)
+	}
+}
+
+func TestLoadNeedsTheBaysCap(t *testing.T) {
+	loadSetup(t, "") // consumes the library for this setup
+	testLibrary = &payload.Library{Dir: t.TempDir()}
+	_, h, _ := setup(t) // bay1 has only "wipe"
+	if body := get(h, "/bays/lab-a/bay1").Body.String(); strings.Contains(body, "Wipe + Load") {
+		t.Error("a bay without the cap offers Load")
+	}
+}
+
+func TestLoadBrokenFolderIsLoud(t *testing.T) {
+	_, h := loadSetup(t, "set a\n  label NOT A VALID LABEL AT ALL\n")
+	body := get(h, "/bays/lab-a/bay1").Body.String()
+	wants(t, "broken", body, "payload folder is broken", "Wipe + Load", "disabled")
+	_, h = loadSetup(t, "") // no file at all
+	wants(t, "missing", get(h, "/bays/lab-a/bay1").Body.String(), "payload folder is broken", "payloads.txt")
+}
+
+func TestLoadConfirmPicksTheBiggestThatFits(t *testing.T) {
+	txt := "set small\n  label A\n  file " + zeroSum + " 200000000000 x\n" +
+		"set big\n  description The big one\n  label A\n  file " + zeroSum + " 800000000000 x\n" +
+		"set huge\n  label A\n  file " + zeroSum + " 2000000000000 x\n"
+	f, h := loadSetup(t, txt)
+	body := get(h, "/bays/lab-a/bay1").Body.String()
+	wants(t, "confirm", body, `data-url="/api/bays/lab-a/bay1/load"`, `data-open-confirm="load"`, "and load it?", "Erase and load this drive", "The big one")
+	if !regexp.MustCompile(`value="big"[^>]*selected`).MatchString(body) {
+		t.Errorf("the biggest that fits isn't picked:\n%s", body)
+	}
+	if regexp.MustCompile(`value="small"[^>]*selected`).MatchString(body) {
+		t.Error("a smaller set is picked")
+	}
+	if strings.Contains(body, `value="huge"`) {
+		t.Error("a set too big for the drive is offered")
+	}
+	// A load carries the set and its list, and nothing else.
+	const path = "/api/bays/lab-a/bay1/load"
+	for name, b := range map[string]string{
+		"no set":  `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","list":"abc"}`,
+		"no list": `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","set":"big"}`,
+		"a path":  `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","set":"big","list":"abc","path":"/etc"}`,
+	} {
+		if w := post(h, path, b, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", name, w.Code)
+		}
+	}
+	if w := post(h, path, `{"serial":"9VPAX9NA","session":"2026-10-25T09:30:00Z","set":"big","list":"abc"}`, nil); w.Code != 200 {
+		t.Fatalf("good load: %d %s", w.Code, w.Body.String())
+	}
+	got := f.took()
+	if len(got) != 1 || got[0].Req.Verb != proto.Load || got[0].Req.Set != "big" || got[0].Req.List != "abc" {
+		t.Errorf("went down as %+v", got)
+	}
 }
 
 // wipeRecord is a whole-drive wipe of the test drive, an hour after its
@@ -315,7 +406,6 @@ func TestBayStates(t *testing.T) {
 	body := get(h, page).Body.String()
 	wants(t, "present", body, "ST31000528AS", "9VPA", "X9NA", "PASS WITH NOTES", "312.00 GB used", "Looks like a backup",
 		`data-act="/api/bays/lab-a/bay1/reread"`, "Re-read", `data-fragment="/fragment/bays/lab-a/bay1"`,
-		`disabled title="Phase 3">Wipe + Load`,
 		`<dialog class="confirm confirm-warn"`, `data-url="/api/bays/lab-a/bay1/wipe"`,
 		`data-serial="9VPAX9NA"`, `data-session="2026-10-25T09:30:00.123456789Z"`,
 		"Erase ST31000528AS, serial 9VPAX9NA, 1.00 TB?", "Found on it: GPT · 2 partitions", "Erase this backup drive",

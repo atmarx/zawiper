@@ -68,6 +68,17 @@ type Job struct {
 	Cores   int     `json:"cores,omitempty"`
 	Load    float64 `json:"load,omitempty"`
 
+	// A job holds the drive under a ceiling, and waits for it to cool (spec
+	// §6.6).  Paused is true while it's waiting, until the drive is at ResumeC.
+	Paused  bool  `json:"paused,omitempty"`
+	ResumeC int   `json:"resume_c,omitempty"`
+	PeakC   int   `json:"peak_c,omitempty"`
+	WaitedS int64 `json:"waited_s,omitempty"`
+
+	// Detail is where a load has got to, in words: "file 12 of 267".  Never
+	// a filename: the wall is more public than the drive.
+	Detail string `json:"detail,omitempty"`
+
 	// Evidence is what ended a FAILED or ALARM job: phase, offset, and what
 	// the drive said.
 	Evidence string `json:"evidence,omitempty"`

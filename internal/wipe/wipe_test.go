@@ -180,3 +180,75 @@ func TestSlow(t *testing.T) {
 		t.Errorf("slow %v", s)
 	}
 }
+
+func TestSampledVerify(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "drive")
+	size := int64(2*SampleSections*SampleBlock + 1<<20)
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, size); err != nil {
+		t.Fatal(err)
+	}
+	r, err := (&Job{Path: path, Size: size, Block: 1 << 20, Buf: 1 << 20, Sample: true}).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.OK() || !r.Sampled || r.Method != MethodSampled {
+		t.Fatalf("a clean sampled wipe isn't OK: %+v", r)
+	}
+	if want := Spans(size, r.SampleSeed); len(want) != r.Samples || r.Samples < SampleSections {
+		t.Errorf("the seed doesn't make the same samples: %d, record says %d", len(want), r.Samples)
+	}
+	if r.Checked >= size {
+		t.Errorf("sampling read %d of %d bytes", r.Checked, size)
+	}
+	if r.Cells[0].Read != 0 {
+		t.Error("a sampled verify drew on the surface map")
+	}
+}
+
+func TestSpans(t *testing.T) {
+	size := int64(1 << 40)
+	got := Spans(size, 7)
+	if got[0] != 0 || got[len(got)-1] != size-SampleBlock {
+		t.Errorf("first and last blocks: %d, %d", got[0], got[len(got)-1])
+	}
+	if len(got) < 2*SampleSections {
+		t.Errorf("%d spans", len(got))
+	}
+	for _, o := range got {
+		if o%SampleBlock != 0 || o < 0 || o >= size {
+			t.Fatalf("offset %d", o)
+		}
+	}
+	if !slices.Equal(got, Spans(size, 7)) {
+		t.Error("the same seed made different spans")
+	}
+	if slices.Equal(got, Spans(size, 8)) {
+		t.Error("a different seed made the same spans")
+	}
+}
+
+func TestSampledVerifyFindsDamage(t *testing.T) {
+	// A drive that stored nothing past 2 MiB: every sample beyond it is wrong.
+	path := filepath.Join(t.TempDir(), "drive")
+	size := int64(2*SampleSections*SampleBlock + 1<<20)
+	os.WriteFile(path, nil, 0o644)
+	os.Truncate(path, size)
+	j := &Job{Path: path, Size: size, Block: 1 << 20, Buf: 1 << 20, Sample: true}
+	j.OnCell = func(pass string, i, n int, c Cell) {
+		if pass == "write" && i == n-1 {
+			f, _ := os.OpenFile(path, os.O_WRONLY, 0)
+			f.WriteAt(make([]byte, size-2<<20), 2<<20)
+			f.Close()
+		}
+	}
+	r, err := j.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.OK() || r.Bad == 0 {
+		t.Fatalf("sampling missed a drive that lost its data: %+v", r)
+	}
+}

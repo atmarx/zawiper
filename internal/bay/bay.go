@@ -45,6 +45,17 @@ type Bay struct {
 	// Restart ends bayd so systemd starts it again, with a device filter
 	// built afresh.  Nil in dev mode and tests that don't set it.
 	Restart func()
+	// TempCeiling lowers the job's ceiling on this bay; zero leaves it to the
+	// drive.  HeatEvery and CoolEvery are how often a job reads the temperature,
+	// working and waiting; tests shrink them.
+	TempCeiling          int
+	HeatEvery, CoolEvery time.Duration
+	// Loads is a bay whose config grants "load", and Fetcher is how it
+	// reaches a payload.  RetryWait is the pause after a dropped connection;
+	// tests shrink it.
+	Loads     bool
+	Fetcher   Fetcher
+	RetryWait time.Duration
 	// Block, Buf and CheckEvery shrink a wipe for dev mode and tests.
 	Block, Buf, CheckEvery int64
 

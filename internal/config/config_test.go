@@ -67,6 +67,7 @@ func TestRefusals(t *testing.T) {
 		{"b1", "name = \"b1\"\nsas_path = \"pci-0000:00:17.0-ata-1\"", "isn't a SAS by-path"},
 		{"b1", "name = \"b1\"\nsas_path = \"pci-0000:03:00.0-sas-phy2-lun-0-part1\"", "names a partition"},
 		{"b1", "name = \"b1\"\nusb_port = \"10-1\"\nsmart_type = \"nvme\"", "smart_type"},
+		{"b1", "name = \"b1\"\nsas_path = \"pci-0000:03:00.0-sas-phy2-lun-0\"\nsmart_type = \"sntjmicron\"", "USB-NVMe"},
 		{"b1", "name = \"b1\"\nusb_port = \"10-1\"\ncaps = \"wipe, format\"", "unknown cap"},
 		{"b1", "name = \"b1\"\nusb_port = \"10-1\"\ncaps = [\"wipe\", \"wipe\"]", "twice"},
 		{"b1", "name = \"b1\"\nusb-port = \"10-1\"", "unknown key"},
@@ -127,6 +128,31 @@ func TestLoadBays(t *testing.T) {
 		write("d.toml", c)
 		if _, err := LoadBays(dir); err == nil || !strings.Contains(err.Error(), "One device, one bay") {
 			t.Errorf("%q beside slots 0 and 1: %v", c, err)
+		}
+	}
+}
+
+func TestWarnLabels(t *testing.T) {
+	for in, want := range map[string]int{
+		`warn_labels = "THE-ARK"`:            1,
+		`warn_labels = ["THE-ARK", "SPARE"]`: 2,
+		``:                                   0,
+	} {
+		b, err := ParseBay("b1.toml", strings.NewReader("name = \"b1\"\nusb_port = \"10-1\"\n"+in+"\n"))
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if len(b.WarnLabels) != want {
+			t.Errorf("%q: %v", in, b.WarnLabels)
+		}
+	}
+}
+
+func TestNVMeBridge(t *testing.T) {
+	for _, typ := range []string{"sntjmicron", "sntasmedia", "sntrealtek"} {
+		b, err := parseString(t, "b1", "name = \"b1\"\nusb_port = \"3-2\"\nsmart_type = \""+typ+"\"\n")
+		if err != nil || b.SmartType != typ {
+			t.Errorf("%s: %+v %v", typ, b, err)
 		}
 	}
 }

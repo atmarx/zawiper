@@ -305,6 +305,13 @@ func TestCapacity(t *testing.T) {
 	if c := s.Capacity(ctx, d, "ATA"); !c.Checked() || c.Hidden() != 32 || c.HPA() != 0 || c.DCO != 1953525200 || c.Native != 1953525168 || !strings.Contains(c.Method, "dco-identify") {
 		t.Errorf("DCO: %+v", c)
 	}
+	// An EDGE SE847 on a USB 2 dock: the low 24 bits of the size, and a DCO
+	// that would otherwise read as 232 GB hidden.
+	fakeHdparm(t, `echo ' max sectors   = 500118192/13578928(500118193?), HPA setting seems invalid (buggy kernel device driver?)'`,
+		`printf 'Real max sectors: 500118193\\n'`)
+	if c := s.Capacity(ctx, d, "ATA"); c.Checked() || !strings.Contains(c.Note, "garbles") {
+		t.Errorf("bridge garbled it: %+v", c)
+	}
 	fakeHdparm(t, `echo 'SG_IO: questionable sense data' >&2; exit 5`, noDCO)
 	if c := s.Capacity(ctx, d, "ATA"); c.Checked() || !strings.Contains(c.Note, "hdparm -N couldn't") {
 		t.Errorf("bridge refused: %+v", c)
@@ -323,5 +330,14 @@ func TestMountsUnder(t *testing.T) {
 	got := mountsUnder(mi, "/mnt/zawiper/bay1")
 	if len(got) != 2 || !got["/mnt/zawiper/bay1/part1"] || !got["/mnt/zawiper/bay1/part6"] {
 		t.Errorf("%v", got)
+	}
+}
+
+func TestSmartArgs(t *testing.T) {
+	if got := strings.Join(smartArgs("sat", "/dev/sdb"), " "); got != "-d sat -a -l scttempsts -j /dev/sdb" {
+		t.Error(got)
+	}
+	if got := strings.Join(smartArgs("sntrealtek", "/dev/sdb"), " "); got != "-d sntrealtek -a -j /dev/sdb" {
+		t.Error(got)
 	}
 }

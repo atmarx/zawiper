@@ -170,7 +170,7 @@ func (s *session) handle(ctx context.Context, f proto.Frame) {
 			return
 		}
 		// Copy only the fields the contract has, whatever else came.
-		req := proto.Request{Verb: f.Request.Verb, Serial: f.Request.Serial, Session: f.Request.Session}
+		req := proto.Request{Verb: f.Request.Verb, Serial: f.Request.Serial, Session: f.Request.Session, Set: f.Request.Set, List: f.Request.List}
 		go func() {
 			s.reply(f.ID, s.l.command(ctx, req))
 			s.pokeStatus()

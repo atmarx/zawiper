@@ -42,7 +42,7 @@ func NewDemoFleet() *DemoFleet {
 		since:  map[string]time.Time{},
 		stop:   make(chan struct{}),
 	}
-	caps := []string{"wipe"}
+	caps := []string{"wipe", "load"} // Load still needs -payloads
 
 	seagate := demoDrive("ST31000528AS", "Seagate Barracuda 7200.12", "9VPAX9NA", 1000204886016, 7200, 11196, 41,
 		demoHealth(
@@ -302,7 +302,7 @@ func (f *DemoFleet) Call(_ context.Context, key string, req proto.Request) (*mod
 		if s.State == model.Present {
 			s.ReadAt = now
 		}
-	case proto.Wipe:
+	case proto.Wipe, proto.Load:
 		switch {
 		case s.State != model.Present || s.Drive == nil:
 			err = errors.New("there's no drive ready to wipe")

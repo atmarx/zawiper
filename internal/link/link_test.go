@@ -43,6 +43,9 @@ func (d *disk) Wipe(serial string, session time.Time) error {
 	d.serial, d.session, d.state = serial, session, model.Running
 	return nil
 }
+func (d *disk) Load(serial string, session time.Time, set, list string) error {
+	return d.Wipe(serial, session)
+}
 func (d *disk) Ack() error   { return nil }
 func (d *disk) Eject() error { return errors.New("the drive is busy") }
 

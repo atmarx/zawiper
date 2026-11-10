@@ -17,6 +17,7 @@ import (
 	_ "time/tzdata" // the container has no zoneinfo; TZ still works
 
 	"github.com/atmarx/zawiper/internal/hub"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/proto"
 	"github.com/atmarx/zawiper/internal/records"
 	"github.com/atmarx/zawiper/internal/sign"
@@ -39,7 +40,19 @@ func main() {
 	tlsKey := flag.String("tls-key", "/etc/zawiper/tls/hub.key", "the hub's key for the link")
 	signKey := flag.String("sign-key", "/srv/zawiper/keys/za-wiper", "the key records are signed with; made on first start if it's missing")
 	site := flag.String("site-url", "", "a public address for the hub, printed on certificates with a QR code; empty keeps records home, and buyers get proof.zip on request")
+	payloads := flag.String("payloads", os.Getenv("ZAWIPER_PAYLOADS"), "a read-only folder of payloads for Wipe + Load, with payloads.txt at its top; empty hides Load entirely (default $ZAWIPER_PAYLOADS)")
+	payloadAddr := flag.String("payload-addr", ":8462", "address the bays fetch payloads from (TLS)")
 	flag.Parse()
+
+	var lib *payload.Library
+	if *payloads != "" {
+		lib = &payload.Library{Dir: *payloads}
+		if _, err := lib.Sets(); err != nil {
+			// Say so, and keep going: the page says it too, and a hub with a
+			// missing NAS mount can still wipe.
+			log.Printf("payloads: %v", err)
+		}
+	}
 
 	var fleet hub.Fleet
 	var signer *sign.Signer
@@ -67,6 +80,9 @@ func main() {
 			log.Fatalf("hub: %v", err)
 		}
 		go func() { log.Fatalf("hub: %v", h.Run(context.Background())) }()
+		if lib != nil {
+			go func() { log.Fatalf("payloads: %v", h.ServePayloads(context.Background(), *payloadAddr, lib.Handler())) }()
+		}
 		log.Printf("bays dial in on %s", *linkAddr)
 		fleet = h
 	}
@@ -76,6 +92,7 @@ func main() {
 		Store:   store,
 		Version: "zaweb " + version + " (" + commit + ")",
 		Signer:  signer,
+		Library: lib,
 	}
 	for _, h := range strings.Split(*hosts, ",") {
 		if h = strings.TrimSpace(h); h != "" {

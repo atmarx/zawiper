@@ -54,6 +54,11 @@ ReadWritePaths=-/var/lib/zawiper/%i/spool
 ProtectHome=yes
 PrivateTmp=yes
 
+# The socket the disk side asks for payload bytes on (spec §6.3).  bayd@ runs
+# as root in the same group, and connecting works on a read-only view.
+RuntimeDirectory=zawiper-link/%i
+RuntimeDirectoryMode=0750
+
 # Network: yes, it's the network side.  Unix for bayd's socket.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 

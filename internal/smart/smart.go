@@ -42,16 +42,26 @@ type Info struct {
 	RotationRate  int    `json:"rotation_rate"`      // 0 is solid state
 	// Link is the SATA link the drive reports, the current speed if it
 	// says and its maximum if not: "3.0 Gb/s", and LinkBps in bits a second.
-	Link          string `json:"link,omitempty"`
-	LinkBps       int64  `json:"link_bps,omitempty"`
-	Passed        *bool  `json:"passed"` // nil when the drive didn't say
-	PowerOnHours  int    `json:"power_on_hours"`
-	PowerCycles   int    `json:"power_cycles"`
-	TempC         int    `json:"temp_c"`
-	ErrorLogCount int    `json:"error_log_count"`
-	Attrs         []Attr `json:"attrs"`
-	ExitStatus    int    `json:"exit_status"`
-	Version       string `json:"smartctl_version"`
+	Link         string `json:"link,omitempty"`
+	LinkBps      int64  `json:"link_bps,omitempty"`
+	Passed       *bool  `json:"passed"` // nil when the drive didn't say
+	PowerOnHours int    `json:"power_on_hours"`
+	PowerCycles  int    `json:"power_cycles"`
+	TempC        int    `json:"temp_c"`
+	// MaxTempC is SCT's recommended maximum, and WarnTempC is NVMe's warning
+	// threshold.  Zero when the drive doesn't say.
+	MaxTempC  int `json:"max_temp_c,omitempty"`
+	WarnTempC int `json:"warn_temp_c,omitempty"`
+	// What only NVMe says.  Total and unallocated are the controller's, and
+	// zero on a drive without namespace management.
+	MediaErrors     int64  `json:"media_errors,omitempty"`
+	PercentUsed     int    `json:"percent_used,omitempty"`
+	NVMeTotal       int64  `json:"nvme_total,omitempty"`
+	NVMeUnallocated int64  `json:"nvme_unallocated,omitempty"`
+	ErrorLogCount   int    `json:"error_log_count"`
+	Attrs           []Attr `json:"attrs"`
+	ExitStatus      int    `json:"exit_status"`
+	Version         string `json:"smartctl_version"`
 }
 
 // The subset of smartctl's JSON we read.
@@ -87,8 +97,21 @@ type rawJSON struct {
 		Hours int `json:"hours"`
 	} `json:"power_on_time"`
 	PowerCycleCount int `json:"power_cycle_count"`
-	Temperature     struct {
-		Current int `json:"current"`
+	NVMeThreshold   struct {
+		Warning int `json:"warning"`
+	} `json:"nvme_composite_temperature_threshold"`
+	// Floats, because smartctl prints these 128-bit counters as bare numbers,
+	// and a bridge's nonsense in one shouldn't sink the whole read.
+	NVMeTotal       float64 `json:"nvme_total_capacity"`
+	NVMeUnallocated float64 `json:"nvme_unallocated_capacity"`
+	NVMeHealth      struct {
+		CriticalWarning int     `json:"critical_warning"`
+		PercentageUsed  int     `json:"percentage_used"`
+		MediaErrors     float64 `json:"media_errors"`
+	} `json:"nvme_smart_health_information_log"`
+	Temperature struct {
+		OpLimitMax int `json:"op_limit_max"` // SCT's recommended maximum; NVMe's warning threshold
+		Current    int `json:"current"`
 	} `json:"temperature"`
 	Attributes struct {
 		Table []struct {
@@ -117,6 +140,18 @@ type linkSpeed struct {
 	BitsPerUnit    int64  `json:"bits_per_unit"`
 }
 
+// NVMe is the protocol smartctl names for an NVMe drive, bridged or not.
+const NVMe = "NVMe"
+
+// nvmeWarnTemperature is the temperature bit of NVMe's critical warning.
+const nvmeWarnTemperature = 0x02
+
+// NVMeHidden is how much of the controller's capacity this namespace doesn't
+// show: unallocated, or in another namespace.  A wipe reaches neither.
+func (i *Info) NVMeHidden() int64 {
+	return max(i.NVMeUnallocated, i.NVMeTotal-i.CapacityBytes)
+}
+
 // Parse reads `smartctl -j` output.  It fails when smartctl couldn't reach
 // the drive or the drive gave no serial, since a record is keyed on it.
 func Parse(b []byte) (*Info, error) {
@@ -141,6 +176,8 @@ func Parse(b []byte) (*Info, error) {
 		PowerOnHours:  r.PowerOnTime.Hours,
 		PowerCycles:   r.PowerCycleCount,
 		TempC:         r.Temperature.Current,
+		MaxTempC:      r.Temperature.OpLimitMax,
+		WarnTempC:     r.NVMeThreshold.Warning,
 		ErrorLogCount: r.ErrorLog.Summary.Count,
 		ExitStatus:    r.Smartctl.ExitStatus,
 	}
@@ -162,6 +199,22 @@ func Parse(b []byte) (*Info, error) {
 	if r.SmartStatus != nil {
 		p := r.SmartStatus.Passed
 		i.Passed = &p
+	}
+	if i.Protocol == NVMe {
+		i.MediaErrors = int64(r.NVMeHealth.MediaErrors)
+		i.PercentUsed = r.NVMeHealth.PercentageUsed
+		i.NVMeTotal, i.NVMeUnallocated = int64(r.NVMeTotal), int64(r.NVMeUnallocated)
+		if i.WarnTempC == 0 {
+			i.WarnTempC = i.MaxTempC
+		}
+		// smartctl calls any critical warning a failed health check.  A
+		// temperature warning alone only says the drive is hot right now,
+		// which Assess reports as that.
+		if r.NVMeHealth.CriticalWarning == nvmeWarnTemperature {
+			passed := true
+			i.Passed = &passed
+			i.ExitStatus &^= ExitFailing
+		}
 	}
 	for _, a := range r.Attributes.Table {
 		i.Attrs = append(i.Attrs, Attr{
@@ -281,6 +334,16 @@ var watched = []struct {
 // HotC is where a drive in a closed caddy has started cooking.
 const HotC = 50
 
+// hotAt is where a drive counts as hot.  An NVMe drive idles past HotC, so it
+// gets its own ceiling.
+func hotAt(i *Info) int {
+	if i.Protocol != NVMe {
+		return HotC
+	}
+	c, _ := Ceiling(i)
+	return c
+}
+
 // Assess grades a drive from SMART alone.
 func Assess(i *Info) Health {
 	h := Health{Grade: Pass}
@@ -304,8 +367,14 @@ func Assess(i *Info) Health {
 			add(false, w.about, w.tag, fmt.Sprint(a.Raw), "%d %s.", a.Raw, w.what)
 		}
 	}
-	if i.TempC >= HotC {
+	if i.TempC >= hotAt(i) {
 		add(false, Drive, "HOT", fmt.Sprintf("%d °C", i.TempC), "Running hot: %d °C.", i.TempC)
+	}
+	if i.MediaErrors > 0 {
+		add(false, Drive, "MEDIA", fmt.Sprint(i.MediaErrors), "%d media and data integrity errors.", i.MediaErrors)
+	}
+	if i.PercentUsed >= 100 {
+		add(false, Drive, "WORN", fmt.Sprintf("%d%%", i.PercentUsed), "The drive has used %d%% of its rated endurance.", i.PercentUsed)
 	}
 	if i.ErrorLogCount > 0 {
 		add(false, Drive, "ERRLOG", fmt.Sprint(i.ErrorLogCount), "%d entries in the drive's error log.", i.ErrorLogCount)
@@ -337,9 +406,56 @@ func Rising(before, after *Info) []Finding {
 		fs = append(fs, Finding{Tag: w.tag, Value: fmt.Sprintf("%d→%d", a.Raw, b.Raw), Fail: w.about == Drive, About: w.about,
 			Text: fmt.Sprintf("%s rose during the wipe, %d → %d.", w.what, a.Raw, b.Raw)})
 	}
+	if after.MediaErrors > before.MediaErrors {
+		fs = append(fs, Finding{Tag: "MEDIA", Value: fmt.Sprintf("%d→%d", before.MediaErrors, after.MediaErrors), Fail: true, About: Drive,
+			Text: fmt.Sprintf("Media and data integrity errors rose during the wipe, %d → %d.", before.MediaErrors, after.MediaErrors)})
+	}
 	if after.ErrorLogCount > before.ErrorLogCount {
 		fs = append(fs, Finding{Tag: "ERRLOG", Value: fmt.Sprintf("%d→%d", before.ErrorLogCount, after.ErrorLogCount), About: Drive,
 			Text: fmt.Sprintf("The drive's error log grew during the wipe, %d → %d entries.", before.ErrorLogCount, after.ErrorLogCount)})
 	}
 	return fs
+}
+
+const (
+	// CeilingSpinning and CeilingFlash are the job's ceilings for a drive that
+	// doesn't say what it wants (spec §6.6).
+	CeilingSpinning = 55
+	CeilingFlash    = 65
+)
+
+// Ceiling is the temperature a job holds a drive under, and where it came
+// from.  NVMe's warning threshold is set for that drive's hotter normal, so it
+// stands.  SCT's maximum can only lower the default: a laptop drive has
+// been seen to report 80 °C, which is no ceiling for a spinning disk.
+func Ceiling(i *Info) (int, string) {
+	sane := func(c int) bool { return c >= 30 && c <= 100 }
+	if i == nil {
+		return CeilingSpinning, "the default, since SMART couldn't be read"
+	}
+	if sane(i.WarnTempC) {
+		return i.WarnTempC, "the drive's NVMe warning threshold"
+	}
+	c, why := CeilingSpinning, "the default for a spinning drive"
+	if i.RotationRate == 0 {
+		c, why = CeilingFlash, "the default for flash"
+	}
+	if sane(i.MaxTempC) && i.MaxTempC < c {
+		return i.MaxTempC, "the drive's recommended maximum"
+	}
+	return c, why
+}
+
+// ParseTemp reads the temperature from `smartctl -A -j`, which has no serial
+// for Parse to hold it to.
+func ParseTemp(b []byte) (int, error) {
+	var r struct {
+		Temperature struct {
+			Current int `json:"current"`
+		} `json:"temperature"`
+	}
+	if err := json.Unmarshal(b, &r); err != nil {
+		return 0, fmt.Errorf("smartctl output isn't JSON: %w", err)
+	}
+	return r.Temperature.Current, nil
 }

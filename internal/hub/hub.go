@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -113,6 +114,34 @@ func (h *Hub) Run(ctx context.Context) error {
 	return h.Serve(ctx, ln)
 }
 
+// ServePayloads gives bays a payload folder (spec §6.3), on its own port since
+// the link's is newline-delimited JSON.  The same certificates get them in.
+func (h *Hub) ServePayloads(ctx context.Context, addr string, payloads http.Handler) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	cfg := h.tls.Clone()
+	cfg.NextProtos = []string{"http/1.1"}
+	srv := &http.Server{
+		ReadHeaderTimeout: 10 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.TLS == nil {
+				http.Error(w, "this port is TLS only", http.StatusForbidden)
+				return
+			}
+			if _, _, err := identity(*r.TLS); err != nil {
+				http.Error(w, "that certificate isn't a bay's", http.StatusForbidden)
+				return
+			}
+			payloads.ServeHTTP(w, r)
+		}),
+	}
+	go func() { <-ctx.Done(); srv.Close() }()
+	log.Printf("serving payloads to bays on %s", ln.Addr())
+	return srv.Serve(tls.NewListener(ln, cfg))
+}
+
 // Serve accepts bays on a listener the caller made.
 func (h *Hub) Serve(ctx context.Context, ln net.Listener) error {
 	tl := tls.NewListener(ln, h.tls)
@@ -194,7 +223,7 @@ func (h *Hub) Call(ctx context.Context, key string, req proto.Request) (*model.S
 
 func knownVerb(v proto.Verb) bool {
 	switch v {
-	case proto.Status, proto.Reread, proto.Wipe, proto.Ack, proto.Eject:
+	case proto.Status, proto.Reread, proto.Wipe, proto.Load, proto.Ack, proto.Eject:
 		return true
 	}
 	return false

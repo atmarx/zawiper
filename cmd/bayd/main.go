@@ -19,6 +19,7 @@ import (
 	"github.com/atmarx/zawiper/internal/bay"
 	"github.com/atmarx/zawiper/internal/config"
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/proto"
 	"github.com/atmarx/zawiper/internal/records"
 )
@@ -46,6 +47,7 @@ func main() {
 	devBay := flag.String("dev-bay", "", "dev mode: a file that stands in for the drive, wiped for real")
 	devSmart := flag.String("dev-smart", "", "dev mode: smartctl -j output to report")
 	devBlock := flag.Int64("dev-block", 1<<20, "dev mode: bytes per surface-map block, small for speed")
+	payloads := flag.String("payload-socket", "", "where the link hands over payload bytes (default /run/zawiper-link/<bay>/payload.sock)")
 	flag.Parse()
 
 	dev := *devBay != ""
@@ -75,7 +77,7 @@ func main() {
 
 	var src bay.Source
 	var shares []string
-	readOnly := false
+	readOnly, loads, ceiling := false, dev, 0
 	if dev {
 		if *devBlock <= 0 || *devBlock%512 != 0 {
 			log.Fatalf("-dev-block %d: want a positive whole number of 512-byte sectors.", *devBlock)
@@ -94,6 +96,7 @@ func main() {
 			log.Fatalf("config: %v", err)
 		}
 		src, readOnly = sys, !cfg.Can("wipe")
+		loads, ceiling = cfg.Can("load"), cfg.TempCeiling
 		shares = config.Siblings(filepath.Dir(*cfgPath), cfg)
 	}
 
@@ -101,7 +104,11 @@ func main() {
 	software := fmt.Sprintf("bayd %s (%s)", version, commit)
 	sp := &bay.Spool{Root: *spool}
 	b := &bay.Bay{Name: *name, Src: src, StatePath: *statePath, Spool: sp,
-		Host: host, Software: software, Direct: !dev, ReadOnly: readOnly, Shares: shares}
+		Host: host, Software: software, Direct: !dev, ReadOnly: readOnly, Shares: shares, Loads: loads, TempCeiling: ceiling}
+	if loads {
+		or(payloads, "/run/zawiper-link/"+*name+"/payload.sock")
+		b.Fetcher = payload.NewClient(*payloads)
+	}
 	if dev {
 		b.Block = *devBlock
 	} else {

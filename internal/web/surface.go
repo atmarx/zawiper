@@ -103,6 +103,11 @@ func summarize(s string) byte {
 	return low
 }
 
+// PausedWords says a job is waiting for the drive to cool.
+func PausedWords(j *model.Job) string {
+	return fmt.Sprintf("Paused to let the drive cool: %d °C, carrying on at %d °C", j.TempC, j.ResumeC)
+}
+
 // PhaseWords says what a job phase is doing, for people.
 func PhaseWords(p string) string {
 	switch p {
@@ -114,6 +119,18 @@ func PhaseWords(p string) string {
 		return "Writing the keystream"
 	case "verify":
 		return "Reading it back and comparing"
+	case "sample":
+		return "Checking a sample against the keystream"
+	case "format":
+		return "Partitioning and formatting"
+	case "load":
+		return "Loading the payload"
+	case "stamp":
+		return "Stamping the drive"
+	case "ballast":
+		return "Filling the rest with ballast"
+	case "read":
+		return "Reading everything back against its hash"
 	case "smart-after":
 		return "Reading SMART after the wipe"
 	case "record":
@@ -187,6 +204,9 @@ func LiveOf(j *model.Job, d *model.Drive, now time.Time) *Live {
 	if fine := (len(j.Map) + fineCells - 1) / fineCells; fine < per {
 		l.Fine, l.FineScale = Group(j.Map, fine), fmt.Sprintf("1 block = %d GiB", max(1, fine))
 	}
+	if j.Paused {
+		l.Phase = PausedWords(j)
+	}
 	l.Written = gb(min(j.Done, j.Total))
 	l.Checked = gb(max(0, j.Done-j.Total))
 	l.Trace, l.Axis = trace(j.WriteMBps, j.ReadMBps, traceCols)
@@ -246,6 +266,13 @@ func LiveOf(j *model.Job, d *model.Drive, now time.Time) *Live {
 
 	l.Slow = strings.Count(j.Map, string(rune(model.CellSlow)))
 	l.ReadBack = records.Size(min(j.Total, max(0, j.Done-j.Total)))
+	if j.Kind == "load" {
+		// Past the overwrite, the bar is the load's, not a read-back of it.
+		l.Checked, l.ReadBack = "—", "a sample, then every file"
+		if j.Detail != "" && j.Ended.IsZero() {
+			l.Phase += ", " + j.Detail
+		}
+	}
 	if !j.Ended.IsZero() && !j.Started.IsZero() {
 		d := j.Ended.Sub(j.Started)
 		l.Took = clock(d)
@@ -410,6 +437,7 @@ func Sig(b hub.Bay) string {
 	if s.Job != nil {
 		j := *s.Job
 		j.Phase, j.Map, j.Done, j.MBps, j.ETA, j.TempC, j.Bad = "", "", 0, 0, 0, 0, 0
+		j.Detail, j.Paused, j.PeakC, j.WaitedS, j.ResumeC = "", false, 0, 0, 0
 		j.CPU, j.HostCPU, j.Cores, j.Load = 0, 0, 0, 0
 		j.WriteMBps, j.ReadMBps = nil, nil
 		job = &j

@@ -5,6 +5,10 @@
 #   .env                    ZAWIPER_HOSTNAME=zawiper.example.org  (required:
 #                           the name browsers use for the page)
 #                           TZ=America/New_York                    (optional)
+#                           ZAWIPER_PAYLOADS=/mnt/nas/payloads     (optional:
+#                           a folder with payloads.txt at its top.  Symlinks
+#                           in it must resolve in here too, so mount their
+#                           targets at the same paths in compose.override.yml)
 #   compose.override.yml    anything about your network: a reverse proxy's
 #                           network to join, a different port.  Compose
 #                           merges it on its own.  See docs/bringup.md.
@@ -39,12 +43,17 @@ services:
     security_opt: ["no-new-privileges:true"]
     environment:
       TZ: ${TZ:-UTC}
+      # Set ZAWIPER_PAYLOADS in .env to turn on Wipe + Load (spec §6.3).
+      # Unset, this stays empty and the page never mentions it.
+      ZAWIPER_PAYLOADS: ${ZAWIPER_PAYLOADS:+/srv/payloads}
     ports:
       - "127.0.0.1:8460:8460"
       - "8461:8461"
+      - "8462:8462"
     volumes:
       - /opt/zawiper/data:/srv/zawiper
       - /opt/zawiper/tls:/etc/zawiper/tls:ro
+      - ${ZAWIPER_PAYLOADS:-/dev/null}:/srv/payloads:ro
     # The links listen on :8461 with /etc/zawiper/tls/{ca.crt,hub.crt,hub.key},
     # zaweb's defaults.
     command: ["-listen", ":8460", "-records", "/srv/zawiper", "-hosts", "${ZAWIPER_HOSTNAME:?set ZAWIPER_HOSTNAME in /opt/zawiper/.env}"]

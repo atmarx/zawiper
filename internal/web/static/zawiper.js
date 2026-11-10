@@ -185,7 +185,7 @@
 
     const opener = e.target.closest("[data-open-confirm]");
     if (opener && region) {
-      const dlg = region.querySelector("dialog.confirm");
+      const dlg = region.querySelector(opener.dataset.openConfirm === "load" ? "dialog[data-load]" : "dialog.confirm:not([data-load])");
       if (dlg && !opener.disabled) {
         if (notice) notice.hidden = true;
         show(dlg.querySelector("[data-confirm-error]"), "");
@@ -200,7 +200,13 @@
       const dlg = go.closest("dialog");
       go.disabled = true;
       try {
-        await post(dlg.dataset.url, { serial: dlg.dataset.serial, session: dlg.dataset.session });
+        const body = { serial: dlg.dataset.serial, session: dlg.dataset.session };
+        const set = dlg.querySelector("[data-set]");
+        if (set) {
+          body.set = set.value;
+          body.list = set.selectedOptions[0].dataset.list;
+        }
+        await post(dlg.dataset.url, body);
         dlg.close();
         if (region) reload(region);
       } catch (err) {

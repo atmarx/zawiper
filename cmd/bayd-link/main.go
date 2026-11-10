@@ -9,7 +9,9 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -31,6 +33,8 @@ func main() {
 	state := flag.String("state", "", "the job state file (default /var/lib/zawiper/<bay>/job.json)")
 	spool := flag.String("spool", "", "finished records waiting for the hub (default /var/lib/zawiper/<bay>/spool)")
 	caps := flag.String("caps", "wipe", "what this bay can do, comma-separated: wipe, load, sas")
+	payloads := flag.String("payload-socket", "", "where the disk side asks for payload bytes (default /run/zawiper-link/<bay>/payload.sock)")
+	payloadHub := flag.String("payload-hub", "", "the hub's payload port (default the hub's host, port 8462)")
 	flag.Parse()
 
 	if *bay == "" || *hub == "" {
@@ -41,6 +45,14 @@ func main() {
 	orDefault(socket, "/run/zawiper/%s/bayd.sock", *bay)
 	orDefault(state, "/var/lib/zawiper/%s/job.json", *bay)
 	orDefault(spool, "/var/lib/zawiper/%s/spool", *bay)
+	orDefault(payloads, "/run/zawiper-link/%s/payload.sock", *bay)
+	if *payloadHub == "" {
+		h, _, err := net.SplitHostPort(*hub)
+		if err != nil {
+			log.Fatalf("-hub %q: %v", *hub, err)
+		}
+		*payloadHub = net.JoinHostPort(h, "8462")
+	}
 
 	tc, cn, err := link.ClientTLS(*ca, *cert, *key)
 	if err != nil {
@@ -62,6 +74,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Printf("bayd-link %s for bay/%s/%s, hub %s", version, host, name, *hub)
+	if slices.Contains(l.Caps, "load") {
+		p := &link.PayloadProxy{Hub: *payloadHub, TLS: tc, Socket: *payloads}
+		go func() {
+			if err := p.Serve(ctx); err != nil {
+				log.Printf("payload socket: %v", err)
+			}
+		}()
+	}
 	if err := l.Run(ctx); err != nil {
 		log.Fatal(err)
 	}

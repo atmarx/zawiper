@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/atmarx/zawiper/internal/model"
@@ -113,3 +115,39 @@ func (v *Dev) Table(ctx context.Context, d Device) (model.Table, error) {
 }
 
 func (v *Dev) Peek(_ context.Context, p *model.Part) { p.Peek = "not mounted: dev mode" }
+
+// In dev mode a folder beside the file stands in for the filesystem, and the
+// file's size is what it holds.  Read-only isn't enforced.
+
+func (v *Dev) LoadReady() error { return nil }
+
+func (v *Dev) Format(_ context.Context, _ Device, _, _ string) (string, error) {
+	dir := v.File + ".fs"
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	return dir, os.Mkdir(dir, 0o777)
+}
+
+func (v *Dev) Mount(_ context.Context, part string, _ bool) (string, error) { return part, nil }
+func (v *Dev) Unmount(context.Context, string) error                        { return nil }
+
+func (v *Dev) Free(dir string) (int64, error) {
+	fi, err := os.Stat(v.File)
+	if err != nil {
+		return 0, err
+	}
+	free := fi.Size()
+	err = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		i, err := d.Info()
+		if err != nil {
+			return err
+		}
+		free -= i.Size()
+		return nil
+	})
+	return max(free, 0), err
+}

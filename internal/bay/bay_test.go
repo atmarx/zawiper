@@ -1,6 +1,7 @@
 package bay
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -299,5 +300,45 @@ func TestSysDevicesOnlyThePort(t *testing.T) {
 	}
 	if _, err := (&Sys{SysBlock: block}).Devices(); err == nil {
 		t.Error("no port configured, but Devices didn't refuse")
+	}
+}
+
+func TestWarnLabels(t *testing.T) {
+	s := &Sys{WarnLabels: []string{"THE-ARK"}}
+	for _, label := range []string{"THE-ARK", "the-ark"} {
+		if got := s.WarnLabel(label); !strings.Contains(got, "warns about") {
+			t.Errorf("%s: %q", label, got)
+		}
+	}
+	for _, label := range []string{"THE-ARKIVE", ""} {
+		if got := s.WarnLabel(label); got != "" {
+			t.Errorf("%q got the warning: %q", label, got)
+		}
+	}
+	if got := (&Sys{}).WarnLabel("THE-ARK"); got != "" {
+		t.Errorf("a bay with no list warned: %q", got)
+	}
+	if got := backupBySignature(&model.Part{FSType: "exfat", Label: "THE-ARK"}); got != "" {
+		t.Errorf("the code itself names a label: %q", got)
+	}
+}
+
+func TestReadNVMe(t *testing.T) {
+	js, err := os.ReadFile("../smart/testdata/nvme_usb.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fake{devs: []Device{{Name: "sdb", Path: "/dev/sdb", Size: 500107862016}}, smart: js}
+	s := Read(context.Background(), f, f.devs, ReadOpts{})
+	if len(s.Refusals) != 0 || s.Drive.Serial() != "NV0000000001" || s.Drive.Health.Grade != smart.Pass {
+		t.Fatalf("refusals %v drive %+v", s.Refusals, s.Drive)
+	}
+
+	// A second namespace the bridge doesn't show: the wipe can't reach it.
+	f.devs[0].Size = 400088289280
+	f.smart = bytes.ReplaceAll(js, []byte(`"bytes": 500107862016`), []byte(`"bytes": 400088289280`))
+	s = Read(context.Background(), f, f.devs, ReadOpts{})
+	if len(s.Refusals) != 1 || !strings.Contains(s.Refusals[0], "another namespace") {
+		t.Fatalf("refusals %v", s.Refusals)
 	}
 }

@@ -61,3 +61,6 @@ func TestSocket(t *testing.T) {
 		t.Errorf("extra field: %+v, rereads %d", rep, x.rereads)
 	}
 }
+func (x *h) Load(serial string, session time.Time, set, list string) error {
+	return x.Wipe(serial, session)
+}

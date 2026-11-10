@@ -98,6 +98,9 @@ func MarkdownSealed(r *Record, seal *Seal) string {
 
 	if r.Wipe != nil {
 		wipeSection(w, r)
+		if r.Load != nil {
+			loadSection(w, r)
+		}
 		checkSection(w, r, seal)
 		w("## Found before the wipe\n\n%s\n\n", FoundLine(&d))
 	} else {
@@ -153,6 +156,9 @@ func kindLine(r *Record) string {
 	case "inspect":
 		return "Inspected, read only"
 	case "wipe":
+		if r.Load != nil {
+			return "Wiped and loaded, " + LoadVerdict(r)
+		}
 		if r.Wipe != nil {
 			return "Wiped, " + WipeVerdict(r.Wipe)
 		}
@@ -348,17 +354,93 @@ func wipeSection(w func(string, ...any), r *Record) {
 	w("| | |\n|---|---|\n")
 	w("| Started | %s |\n", When(x.Started))
 	w("| Write pass | %s |\n", Pass(x, false))
-	w("| Verify pass | %s |\n", Pass(x, true))
-	w("| Read back as written | %s of %s bytes |\n", Commas(x.Checked), Commas(x.Size))
+	if x.Sampled {
+		w("| Verified by sampling | %s blocks of %d bytes (IEEE 2883 §7.3), %s bytes matched |\n", Commas(int64(x.Samples)), wipe.SampleBlock, Commas(x.Checked))
+		w("| Sample seed | %d |\n", x.SampleSeed)
+	} else {
+		w("| Verify pass | %s |\n", Pass(x, true))
+		w("| Read back as written | %s of %s bytes |\n", Commas(x.Checked), Commas(x.Size))
+	}
 	if x.Bad > 0 {
 		w("| Bad | %s bytes |\n", Commas(x.Bad))
+	}
+	if h := HeatLine(r); h != "" {
+		w("| Temperature | %s |\n", h)
 	}
 	w("| Slow blocks | %s |\n\n", SlowLine(x))
 	w("```\n%s\n```\n\n%s\n\n", Surface(x), SurfaceLegend(x))
 }
 
+// Took says a length of time for people: "12 min".
+func Took(d time.Duration) string {
+	if m := int(d.Round(time.Minute).Minutes()); m > 0 {
+		return fmt.Sprintf("%d min", m)
+	}
+	return fmt.Sprintf("%d s", int(d.Round(time.Second).Seconds()))
+}
+
+// HeatLine is the job's temperature in a line.
+func HeatLine(r *Record) string {
+	h := r.Heat
+	if h == nil || h.PeakC == 0 && h.WaitedS == 0 {
+		return ""
+	}
+	s := fmt.Sprintf("peak %d °C", h.PeakC)
+	if h.CeilingC > 0 {
+		s += fmt.Sprintf(", ceiling %d °C (%s)", h.CeilingC, h.Why)
+	}
+	if h.Pauses > 0 || h.WaitedS > 0 {
+		s += fmt.Sprintf(", waited %s to cool", Took(time.Duration(h.WaitedS)*time.Second))
+	}
+	if h.Lost {
+		s += ", and carried on after the temperature stopped reading"
+	}
+	return s
+}
+
+// LoadVerdict says how a load ended.
+func LoadVerdict(r *Record) string {
+	switch {
+	case r.Wipe != nil && !r.Wipe.OK():
+		return WipeVerdict(r.Wipe) + ", and never loaded"
+	case r.Load.OK():
+		return "verified"
+	}
+	return "FAILED verification"
+}
+
+func loadSection(w func(string, ...any), r *Record) {
+	l := r.Load
+	w("## Loaded: %s\n\n", LoadVerdict(r))
+	w("| | |\n|---|---|\n")
+	w("| Set | %s |\n", l.Set)
+	w("| Files | %s, %s bytes |\n", Commas(int64(l.Files)), Commas(l.Bytes))
+	w("| List's SHA-256 | `%s` |\n", l.Hash)
+	w("| Ballast | %s bytes of keystream |\n", Commas(l.Ballast))
+	w("| Read back | %s of %s bytes |\n", Commas(l.Verified()), Commas(l.Bytes+l.Ballast))
+	if n := len(l.BadFiles); n > 0 {
+		w("| Bad files | %d, first #%d in the stamp's list |\n", n, l.BadFiles[0])
+	}
+	if l.BadBallast > 0 {
+		w("| Bad ballast | %s bytes |\n", Commas(l.BadBallast))
+	}
+	w("\n%s\n\n", LoadedNote(r))
+}
+
+// LoadedNote says what a load's numbers don't cover, and who can check what.
+func LoadedNote(r *Record) string {
+	s := "The read back covers every file and the ballast.  It doesn't cover filesystem metadata or the unused tails of each file's last cluster.  "
+	if r.Load.RecordOnDrive {
+		s += "The drive's copy of this record went down after the last read, so nothing has verified that one file.  "
+	}
+	return s + "Anyone holding the drive can check the files and the ballast again.  The load overwrote most of what was sampled, so that step rests on this record."
+}
+
 // Overwritten is the one sentence that says what the wipe did to every byte.
 func Overwritten(x *wipe.Result) string {
+	if x.Sampled {
+		return "Every byte of this drive was overwritten with a keystream, and a sample was read back and compared.  Then the set was loaded over it."
+	}
 	if x.Key == "" {
 		return "Every byte of this drive was overwritten with a keystream from a key that existed only in memory, then read back and compared."
 	}
@@ -409,6 +491,19 @@ func Sanitize(r *Record) Sanitization {
 	if x == nil {
 		return Sanitization{Why: "This record is an inspection.  Nothing was written to the drive."}
 	}
+	if x.Sampled {
+		s := Sanitize(sampledAsFull(r))
+		s.Standard = strings.Replace(StandardClear, "§7.2, full verification", "§7.3, sampled verification", 1)
+		s.Verify = fmt.Sprintf("Sampled verification (IEEE 2883 §7.3).  Before the load, two blocks at random in each of %s sections, plus the first and the last, were read back and compared with the regenerated keystream.  The seed is in this record.", Commas(wipe.SampleSections))
+		s.Result = fmt.Sprintf("%s of %s sampled bytes read back as written.", Commas(x.Checked), Commas(int64(x.Samples)*wipe.SampleBlock))
+		if x.Bad > 0 {
+			s.Result += fmt.Sprintf("  %s bytes didn't.", Commas(x.Bad))
+		}
+		if r.Load != nil {
+			s.Result += fmt.Sprintf("  Then %s of %s bytes of files and ballast read back to their hashes and keystream.", Commas(r.Load.Verified()), Commas(r.Load.Bytes+r.Load.Ballast))
+		}
+		return s
+	}
 	s := Sanitization{
 		Standard:  StandardClear,
 		Technique: fmt.Sprintf("Overwrite.  One pass of an AES-256-CTR keystream over all %s bytes a host can address, from the first to the last.", Commas(x.Size)),
@@ -452,6 +547,18 @@ func Sanitize(r *Record) Sanitization {
 		s.Whose = ClaimIsOurs
 	}
 	return s
+}
+
+// sampledAsFull lets Sanitize's other reasons apply to a sampled wipe: its
+// bytes were all written, and OK has already held the samples to account.
+func sampledAsFull(r *Record) *Record {
+	c, x := *r, *r.Wipe
+	x.Sampled = false
+	if r.Wipe.OK() {
+		x.Checked = x.Size
+	}
+	c.Wipe = &x
+	return &c
 }
 
 // Media is the media type, as the certificate names it.
@@ -573,10 +680,16 @@ func NewCertificate(r *Record, seal *Seal) *Certificate {
 	if r.Drive.SMART != nil {
 		c.Model = r.Drive.SMART.Model
 	}
-	c.ForSale = c.San.Level != "" && r.Health.Grade != smart.Fail
+	loadBad := r.Load != nil && !r.Load.OK()
+	c.ForSale = c.San.Level != "" && r.Health.Grade != smart.Fail && !loadBad
 	switch {
 	case c.ForSale:
 		c.Verdict = "WIPED · VERIFIED"
+		if r.Load != nil {
+			c.Verdict = "WIPED · LOADED · VERIFIED"
+		}
+	case loadBad:
+		c.Verdict, c.Why = "NOT FOR SALE", "The wipe verified, but the load didn't read back."
 	case c.San.Level == "":
 		c.Verdict, c.Why = "NOT FOR SALE", c.San.Why
 	default:
@@ -598,6 +711,15 @@ func NewCertificate(r *Record, seal *Seal) *Certificate {
 	}
 	if x.Key != "" {
 		c.Check = KeyCheck(x, "/dev/sdX")
+	}
+	if r.Load != nil {
+		// What can be checked is the files and the ballast, through a mount.
+		// The key still checks the ballast; zverify takes it from the record.
+		c.Check = ""
+		c.Zverify = strings.Replace(c.Zverify, "/dev/sdX", "/mnt/drive", 1)
+		if c.Zverify == "" {
+			c.Zverify = "zverify -no-sig record.json /mnt/drive"
+		}
 	}
 	if c.Zverify == "" {
 		c.Zverify = "zverify -no-sig record.json /dev/sdX"
@@ -684,7 +806,9 @@ func checkSection(w func(string, ...any), r *Record, seal *Seal) {
 	x := r.Wipe
 	c := NewCertificate(r, seal)
 	w("## Check it yourself\n\n")
-	if x.Key == "" {
+	if r.Load != nil {
+		w("Mount the drive, then check its files and ballast with zverify:\n\n    %s\n\n", c.Zverify)
+	} else if x.Key == "" {
 		w("This wipe ran before Za Wiper published its keys, so the stream can't be regenerated.  The read-back above is the only check.\n\n")
 	} else {
 		w("The wipe's key is published on purpose.  It regenerates the noise that was written, so anyone can read the drive back against it without trusting us.  The old data is gone either way; the key only proves it.\n\n")

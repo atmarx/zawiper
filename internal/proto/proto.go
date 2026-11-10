@@ -24,6 +24,9 @@ const (
 	// Wipe carries the drive and insertion the confirm was drawn from.  The
 	// disk side refuses unless that's what it holds right now.
 	Wipe Verb = "wipe"
+	// Load is a wipe that leaves a payload behind.  It carries the set too, and
+	// the hash of the list the confirm showed.
+	Load Verb = "load"
 	// Ack clears DONE, FAILED, INTERRUPTED or ALARM back to the drive.
 	Ack Verb = "ack"
 	// Eject syncs, spins the drive down, and lets it go.
@@ -36,6 +39,8 @@ type Request struct {
 	Verb    Verb      `json:"verb"`
 	Serial  string    `json:"serial,omitempty"`
 	Session time.Time `json:"session,omitzero"`
+	Set     string    `json:"set,omitempty"`
+	List    string    `json:"list,omitempty"`
 }
 
 type Reply struct {
@@ -49,6 +54,7 @@ type Handler interface {
 	Status() model.Snapshot
 	Reread()
 	Wipe(serial string, session time.Time) error
+	Load(serial string, session time.Time, set, list string) error
 	Ack() error
 	Eject() error
 }
@@ -101,11 +107,13 @@ func handle(c net.Conn, h Handler) {
 			h.Reread()
 			s := h.Status()
 			rep.OK, rep.Snapshot = true, &s
-		case Wipe, Ack, Eject:
+		case Wipe, Load, Ack, Eject:
 			var err error
 			switch req.Verb {
 			case Wipe:
 				err = h.Wipe(req.Serial, req.Session)
+			case Load:
+				err = h.Load(req.Serial, req.Session, req.Set, req.List)
 			case Ack:
 				err = h.Ack()
 			case Eject:

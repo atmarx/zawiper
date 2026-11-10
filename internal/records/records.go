@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/smart"
 	"github.com/atmarx/zawiper/internal/wipe"
 )
@@ -43,6 +44,24 @@ type Record struct {
 	// after the wipe; Before is SMART from before it.
 	Wipe   *wipe.Result `json:"wipe,omitempty"`
 	Before *smart.Info  `json:"smart_before,omitempty"`
+	// How hot the job ran, and how long it waited for the drive to cool.
+	Heat *Heat `json:"heat,omitempty"`
+	// A Wipe + Load: what went on the drive after the wipe.
+	Load *payload.Result `json:"load,omitempty"`
+}
+
+// Heat is the job's temperature: the ceiling it held, the peak it saw, and a
+// reading for each time it looked.
+type Heat struct {
+	CeilingC int    `json:"ceiling_c,omitempty"`
+	Why      string `json:"ceiling_from,omitempty"`
+	PeakC    int    `json:"peak_c,omitempty"`
+	Pauses   int    `json:"pauses,omitempty"`
+	WaitedS  int64  `json:"waited_s,omitempty"`
+	Curve    []int  `json:"curve_c,omitempty"`
+	// Lost says the temperature couldn't be read for so long during a pause
+	// that the job carried on without knowing.
+	Lost bool `json:"lost,omitempty"`
 }
 
 // Summary is drive.json: enough for the list without opening every record.

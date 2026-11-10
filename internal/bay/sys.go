@@ -19,6 +19,7 @@ import (
 
 	"github.com/atmarx/zawiper/internal/config"
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/records"
 	"github.com/atmarx/zawiper/internal/smart"
 )
@@ -40,12 +41,24 @@ type Sys struct {
 	// refusal sees it.
 	SASPath string
 
-	SmartType string // smartctl -d; "sat" for USB-SATA bridges, "scsi" for SAS
+	SmartType string // smartctl -d; "sat" for USB-SATA bridges, "scsi" for SAS, "snt*" for USB-NVMe
 	// RunDir is where the peek makes its mount point: /run/zawiper/<bay>,
 	// the unit's RuntimeDirectory, writable under ProtectSystem=strict.
 	RunDir   string
 	SysBlock string // "/sys/block"; tests point it elsewhere
 	ByPath   string // "/dev/disk/by-path"; tests point it elsewhere
+	// WarnLabels come from the bay's config.
+	WarnLabels []string
+}
+
+// WarnLabel says why a label is on this bay's list, or "" if it isn't.
+func (s *Sys) WarnLabel(label string) string {
+	for _, w := range s.WarnLabels {
+		if label != "" && strings.EqualFold(label, w) {
+			return fmt.Sprintf("labelled %q, one of the labels this bay warns about", label)
+		}
+	}
+	return ""
 }
 
 // NewSys makes the Source for a configured bay.
@@ -60,11 +73,12 @@ func NewSys(cfg *config.Bay) (*Sys, error) {
 		return nil, fmt.Errorf("bay %s: needs exactly one of usb_port and sas_path", cfg.Name)
 	}
 	return &Sys{
-		Port:      cfg.USBPort,
-		LUN:       cfg.USBLUN,
-		SASPath:   cfg.SASPath,
-		SmartType: cfg.SmartType,
-		RunDir:    filepath.Join("/run/zawiper", cfg.Name),
+		Port:       cfg.USBPort,
+		LUN:        cfg.USBLUN,
+		SASPath:    cfg.SASPath,
+		SmartType:  cfg.SmartType,
+		RunDir:     filepath.Join("/run/zawiper", cfg.Name),
+		WarnLabels: cfg.WarnLabels,
 	}, nil
 }
 
@@ -336,7 +350,7 @@ func (s *Sys) SMART(ctx context.Context, d Device) ([]byte, []byte, error) {
 	// smartctl's exit status is a bitmask of findings, so a non-zero exit is
 	// normal.  smart.Parse reads the bits from the JSON; here only a failure
 	// to run at all counts.
-	js, code, err := runAnyExit(ctx, "smartctl", "-d", typ, "-a", "-j", d.Path)
+	js, code, err := runAnyExit(ctx, "smartctl", smartArgs(typ, d.Path)...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -349,6 +363,32 @@ func (s *Sys) SMART(ctx context.Context, d Device) ([]byte, []byte, error) {
 	return js, text, err
 }
 
+// smartArgs is the first SMART read.  SCT is ATA's, so an NVMe bridge isn't
+// asked for it.
+func smartArgs(typ, path string) []string {
+	if strings.HasPrefix(typ, "snt") {
+		return []string{"-d", typ, "-a", "-j", path}
+	}
+	return []string{"-d", typ, "-a", "-l", "scttempsts", "-j", path}
+}
+
+// Temperature reads only the drive's attributes.  A job asks once a minute for
+// hours, and a full SMART read each time is what a dock has reset under.
+func (s *Sys) Temperature(ctx context.Context, d Device) (int, error) {
+	typ := s.SmartType
+	if typ == "" {
+		typ = "sat"
+	}
+	js, code, err := runAnyExit(ctx, "smartctl", "-d", typ, "-A", "-j", d.Path)
+	if err != nil {
+		return 0, err
+	}
+	if code&(smart.ExitCmdLine|smart.ExitOpenFailed) != 0 {
+		return 0, fmt.Errorf("smartctl couldn't reach it (exit %d)", code)
+	}
+	return smart.ParseTemp(js)
+}
+
 var (
 	maxSectors  = regexp.MustCompile(`max sectors\s*=\s*(\d+)/(\d+)`)
 	realSectors = regexp.MustCompile(`Real max sectors:\s*(\d+)`)
@@ -357,6 +397,9 @@ var (
 // Capacity asks an ATA drive, through hdparm, whether an HPA or a DCO
 // keeps sectors from the host.  Both are read-only queries.
 func (s *Sys) Capacity(ctx context.Context, d Device, protocol string) *model.Capacity {
+	if protocol == smart.NVMe {
+		return &model.Capacity{Note: "NVMe has no HPA or DCO.  Za Wiper compares the namespace with the controller's capacity, where the drive reports it."}
+	}
 	if protocol != "ATA" {
 		return &model.Capacity{Note: fmt.Sprintf("Za Wiper checks only ATA drives for hidden sectors so far, and this one speaks %s.", cmp.Or(protocol, "an unknown protocol"))}
 	}
@@ -369,6 +412,12 @@ func (s *Sys) Capacity(ctx context.Context, d Device, protocol string) *model.Ca
 	}
 	c.Visible, _ = strconv.ParseInt(string(m[1]), 10, 64)
 	c.Native, _ = strconv.ParseInt(string(m[2]), 10, 64)
+	// A drive can't have fewer sectors than it shows.  This is a bridge losing
+	// the high bytes of a 48-bit reply, which leaves the low 24 bits of the size.
+	if c.Native < c.Visible {
+		c.Note = fmt.Sprintf("This bridge garbles the drive's native size (%s sectors, with %s visible), so hidden sectors can't be checked through it.", records.Commas(c.Native), records.Commas(c.Visible))
+		return c
+	}
 	// A drive without the DCO feature set refuses the query.  hdparm -N
 	// just got through, so the bridge passes ATA commands, and a refusal
 	// here is the drive's answer.
@@ -500,7 +549,7 @@ d=$(mktemp -d "$4/peek.XXXXXX") || exit 90
 trap 'umount "$d" 2>/dev/null; rmdir "$d"' EXIT
 mount -t "$1" -o "$2,noexec,nosuid,nodev" "$3" "$d" || exit 91
 df -B1 --output=used "$d" | tail -n 1
-for f in config keys snapshots .chunks; do [ -e "$d/$f" ] && echo "has $f"; done
+for f in config keys snapshots .chunks ZA-WIPER-FILES.txt DELETE_THIS_IF_YOU_NEED_SPACE; do [ -e "$d/$f" ] && echo "has $f"; done
 exit 0
 `
 
@@ -540,7 +589,96 @@ func (s *Sys) Peek(ctx context.Context, p *model.Part) {
 		p.Backup = "holds a restic repository"
 	case has[".chunks"]:
 		p.Backup = "holds a Proxmox Backup Server datastore"
+	case has[payload.StampList] || has[payload.Ballast]:
+		p.Backup = "someone loaded it on purpose: it has a load's stamp or ballast"
 	}
+}
+
+// LoadReady says what this host still needs for a load.  It's asked before the
+// wipe, so a missing mkfs doesn't cost a drive.
+func (s *Sys) LoadReady() error {
+	for name, pkg := range map[string]string{"sgdisk": "gdisk", "mkfs.exfat": "exfatprogs", "mount": "util-linux", "umount": "util-linux"} {
+		if _, err := os.Stat(sbin(name)); err != nil {
+			return fmt.Errorf("%s isn't installed (it's in the %s package)", name, pkg)
+		}
+	}
+	return nil
+}
+
+// Format makes one GPT partition across the drive and a filesystem on it.
+func (s *Sys) Format(ctx context.Context, d Device, filesystem, label string) (string, error) {
+	if filesystem != "exfat" {
+		return "", fmt.Errorf("I only make exfat, not %q", filesystem)
+	}
+	for _, args := range [][]string{{"--zap-all", d.Path}, {"-n", "1:0:0", "-t", "1:0700", d.Path}} {
+		if out, _, err := run(ctx, "sgdisk", args...); err != nil {
+			return "", fmt.Errorf("sgdisk %s: %v %s", strings.Join(args, " "), err, firstLine(out))
+		}
+	}
+	// The kernel makes the partition, then udev opens the device filter to
+	// it.  Either can take a moment.
+	deadline := time.Now().Add(openWait)
+	var part string
+	for {
+		if p := s.partitions(d); len(p) == 1 {
+			part = "/dev/" + p[0]
+			break
+		}
+		if time.Now().After(deadline) {
+			return "", fmt.Errorf("the new partition never appeared on %s", d.Path)
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if err := openable(ctx, part); err != nil {
+		return "", err
+	}
+	if out, _, err := run(ctx, "blockdev", "--setrw", part); err != nil {
+		return "", fmt.Errorf("blockdev --setrw %s: %v %s", part, err, firstLine(out))
+	}
+	if out, _, err := run(ctx, "mkfs.exfat", "-L", label, part); err != nil {
+		return "", fmt.Errorf("mkfs.exfat %s: %v %s", part, err, firstLine(out))
+	}
+	return part, nil
+}
+
+// Mount mounts the load's filesystem in the unit's own namespace, under its
+// runtime directory.  The host never sees it.
+func (s *Sys) Mount(ctx context.Context, part string, readOnly bool) (string, error) {
+	dir := filepath.Join(s.runDir(), "load")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	opts := "rw,noexec,nosuid,nodev"
+	if readOnly {
+		opts = "ro,noexec,nosuid,nodev"
+	}
+	if out, _, err := run(ctx, "mount", "-t", "exfat", "-o", opts, part, dir); err != nil {
+		os.Remove(dir)
+		return "", fmt.Errorf("mount %s: %v %s", part, err, firstLine(out))
+	}
+	return dir, nil
+}
+
+// Unmount unmounts.  Every file was already flushed as it was written, so this
+// has little left to do.
+func (s *Sys) Unmount(ctx context.Context, dir string) error {
+	if out, _, err := run(ctx, "umount", dir); err != nil {
+		return fmt.Errorf("umount %s: %v %s", dir, err, firstLine(out))
+	}
+	return os.Remove(dir)
+}
+
+// Free is what the filesystem has left.
+func (s *Sys) Free(dir string) (int64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		return 0, err
+	}
+	return int64(st.Bavail) * int64(st.Bsize), nil
 }
 
 // BrowseRoot is where `bayd browse` mounts a bay's filesystems:

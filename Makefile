@@ -1,4 +1,4 @@
-VERSION := 0.2.0
+VERSION := 0.3.0
 COMMIT  := $(shell git describe --always --dirty 2>/dev/null || echo unknown)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 GOBUILD := CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
@@ -16,6 +16,8 @@ build:
 	$(GOBUILD) -o bin/bayd-link ./cmd/bayd-link
 	$(GOBUILD) -o bin/zaweb ./cmd/zaweb
 	$(GOBUILD) -o bin/zawipe ./cmd/zawipe
+	$(GOBUILD) -o bin/zverify ./cmd/zverify
+	$(GOBUILD) -o bin/zpayload ./cmd/zpayload
 	$(GOBUILD) -o bin/bayrules ./deploy/bayrules
 
 test:

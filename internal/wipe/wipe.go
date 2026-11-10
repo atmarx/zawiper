@@ -20,7 +20,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	mrand "math/rand/v2"
 	"os"
+	"slices"
 	"sort"
 	"syscall"
 	"time"
@@ -38,6 +40,16 @@ const (
 
 // Method is how a wipe overwrites, as the record states it.
 const Method = "AES-256-CTR keystream, one pass, read back and compared"
+
+// MethodSampled is the same pass before a load, checked by sampling.
+const MethodSampled = "AES-256-CTR keystream, one pass, verified by sampling (IEEE 2883 §7.3)"
+
+const (
+	// SampleBlock and SampleSections are IEEE 2883 §7.3's second option: two
+	// blocks at random in each of 10,000 sections, and the first and last.
+	SampleBlock    = 4096
+	SampleSections = 10000
+)
 
 type Cell struct {
 	Write float64 `json:"write_s"`
@@ -62,6 +74,11 @@ type Result struct {
 	Aborted string `json:"aborted,omitempty"`
 	// Alarm is what the identity check said when it stopped the run.
 	Alarm string `json:"alarm,omitempty"`
+	// Sampled says the verify was §7.3's, not every byte: Checked counts the
+	// samples, and SampleSeed makes them again with Spans.
+	Sampled    bool   `json:"sampled,omitempty"`
+	SampleSeed uint64 `json:"sample_seed,omitempty"`
+	Samples    int    `json:"samples,omitempty"`
 	// Key and IV, hex, published so the wipe can be re-checked (Keystream).
 	Key string `json:"key"`
 	IV  string `json:"iv"`
@@ -69,7 +86,13 @@ type Result struct {
 
 // OK is a finished wipe where every byte read back as written.
 func (r *Result) OK() bool {
-	return r.Aborted == "" && r.Alarm == "" && r.Bad == 0 && r.Written == r.Size && r.Checked == r.Size
+	if r.Aborted != "" || r.Alarm != "" || r.Bad != 0 || r.Written != r.Size {
+		return false
+	}
+	if r.Sampled {
+		return r.Samples > 0 && r.Checked == int64(r.Samples)*SampleBlock
+	}
+	return r.Checked == r.Size
 }
 
 // MBps is the average for a pass, in decimal megabytes a second.
@@ -150,6 +173,14 @@ type Job struct {
 	Check func(off int64) error
 	// Block, Buf and CheckEvery default to the package's; tests shrink them.
 	Block, Buf, CheckEvery int64
+	// Wait is called before each buffer, and may hold the job there while the
+	// drive cools.  It returns how long it waited, which stays out of the
+	// block's timing: a pause isn't a weak spot.
+	Wait func(ctx context.Context) time.Duration
+	// Sample verifies by §7.3 sampling instead of every byte: what a load
+	// wants, since its full read comes at the end.  A drive too small to
+	// sample gets the full read anyway.
+	Sample bool
 }
 
 // Run writes the keystream over the whole device, then verifies it.  A
@@ -201,6 +232,9 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 		c := &r.Cells[i]
 		end := min(int64(i+1)*bs, j.Size)
 		for off := int64(i) * bs; off < end; off += bf {
+			if j.Wait != nil {
+				t0 = t0.Add(j.Wait(ctx))
+			}
 			if j.halt(ctx, r, "write", off, &next, every) {
 				return r, nil
 			}
@@ -223,6 +257,12 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 	}
 	r.Wrote = time.Now().UTC()
 
+	if j.Sample && Sampleable(j.Size) {
+		seed := binary.BigEndian.Uint64(key[32:40]) ^ uint64(time.Now().UnixNano())
+		j.sample(ctx, f, block, iv, data, want, r, seed, every)
+		return r, nil
+	}
+
 	// Verify.
 	next = 0
 	for i := 0; i < n; i++ {
@@ -231,6 +271,9 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 		c := &r.Cells[i]
 		end := min(int64(i+1)*bs, j.Size)
 		for off := int64(i) * bs; off < end; off += bf {
+			if j.Wait != nil {
+				t0 = t0.Add(j.Wait(ctx))
+			}
 			if j.halt(ctx, r, "verify", off, &next, every) {
 				return r, nil
 			}
@@ -264,6 +307,68 @@ func (j *Job) Run(ctx context.Context) (*Result, error) {
 	}
 	r.Verified = time.Now().UTC()
 	return r, nil
+}
+
+// sample is the verify pass by §7.3: the blocks Spans names, against the
+// keystream.  Fewer than the drive's blocks, so it reports bytes and leaves
+// the surface map alone.
+func (j *Job) sample(ctx context.Context, f *os.File, block cipher.Block, iv, data, want []byte, r *Result, seed uint64, every int64) {
+	spans := Spans(j.Size, seed)
+	r.Sampled, r.SampleSeed, r.Samples, r.Method = true, seed, len(spans), MethodSampled
+	next := int64(0)
+	for _, off := range spans {
+		if j.Wait != nil {
+			j.Wait(ctx)
+		}
+		if j.halt(ctx, r, "sample", off, &next, every) {
+			return
+		}
+		keystream(block, iv, off, want[:SampleBlock])
+		if _, err := f.ReadAt(data[:SampleBlock], off); err != nil {
+			r.Bad += SampleBlock
+			c := &r.Cells[off/r.Block]
+			c.Bad += SampleBlock
+			c.Err = firstErr(c.Err, err)
+			continue
+		}
+		var bad int64
+		for k := range data[:SampleBlock] {
+			if data[k] != want[k] {
+				bad++
+			}
+		}
+		if bad > 0 {
+			r.Cells[off/r.Block].Bad += bad
+			r.Bad += bad
+		}
+		r.Checked += SampleBlock - bad
+		j.moved("sample", r.Checked+r.Bad)
+	}
+	r.Verified = time.Now().UTC()
+}
+
+// Sampleable says a drive has two blocks for every section.  A smaller one
+// is quicker to read whole.
+func Sampleable(size int64) bool { return size >= 2*SampleSections*SampleBlock }
+
+// Spans is §7.3's sample of a drive this size: the first and last blocks and
+// two distinct blocks at random in each section, in order, as byte offsets.
+// The seed makes them again.
+func Spans(size int64, seed uint64) []int64 {
+	rng := mrand.New(mrand.NewPCG(seed, seed^0x5a57))
+	blocks := size / SampleBlock
+	offs := []int64{0, (blocks - 1) * SampleBlock}
+	for i := int64(0); i < SampleSections; i++ {
+		lo, hi := blocks*i/SampleSections, blocks*(i+1)/SampleSections
+		a := lo + rng.Int64N(hi-lo)
+		b := lo + rng.Int64N(hi-lo-1)
+		if b >= a {
+			b++
+		}
+		offs = append(offs, a*SampleBlock, b*SampleBlock)
+	}
+	slices.Sort(offs)
+	return slices.Compact(offs)
 }
 
 func (j *Job) start(pass string, i, n int) {

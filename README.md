@@ -52,18 +52,20 @@ It runs fine as one PC with one USB dock.  The point is when it isn't: a bay in 
 
 That's the first goal, and it outranks everything else.  A bay refuses a drive the host is using, two drives on one port, a drive that won't say who it is, and a drive whose size the bridge and the drive disagree on.  Anything else gets wiped as well as it can be, even a failing drive or one hiding sectors.  The record says what the wipe was worth, and the perfect doesn't get to be the enemy of the good enough.  A wipe has to name the serial and the insertion its confirmation was drawn from, so a stale page or a swapped drive fails closed.  Backup media (a `backup-` label, a restic repository, a PBS datastore, an md, LVM or ZFS member) turns the card amber, and the button reads **Erase this backup drive**.
 
-## And The Ark
+## Leaving something on the drive
 
-A wiped drive doesn't have to leave empty.  [The Ark](https://github.com/atmarx/the-ark) builds offline libraries onto ordinary drives: Wikipedia, Project Gutenberg, medical references, repair guides, with the Kiwix readers on board.  Za Wiper started there as the bay that prepares a drive for an Ark, and **Wipe + Load** is the job that joins them: wipe, prove it, then lay down a loadout and fill the drive to the last byte.  A retired drive leaves as a library, with a certificate that says what was on it before was erased.
+A wiped drive doesn't have to leave empty.  **Wipe + Load** overwrites the drive, checks a sample against the keystream, formats it exFAT, lays down a set of files, fills the rest with ballast, and reads everything back against its hash.  The certificate says exactly that, and `zverify` can check the files and the ballast later.
 
-Today the two meet by hand (`ark stamp` at a shell).  Wipe + Load in the bay is Phase 3.
+A payload is any folder of files.  `zpayload` hashes one into `payloads.txt`, `ZAWIPER_PAYLOADS` in the hub's `.env` points at it, and the button appears.  Unset, the page never mentions it.  Files only, on purpose: nothing is bootable, and nothing arrives marked executable.
+
+[The Ark](https://github.com/atmarx/the-ark) is the payload this was built for: Wikipedia, Project Gutenberg, medical references and repair guides, with the Kiwix readers on board.  A retired drive leaves as a library, with a certificate that says what was on it before was erased.
 
 ## Where it stands
 
 | | |
 |---|---|
-| **Built** | The read-only bay, the networked fleet with kernel-held scope, the wipe with full read-back, the HPA and DCO check, the SMART diff and grade, signed records, `proof.zip`, `zverify`.  The wall, with the time left on each wipe and a pill for each finding (`REALLOC 27`, `HITEMP 55C`).  A drive's history on its bay page when it comes back, and a certificate that prints from there.  First hardware wipe 2026-10-26. |
-| **Next** | Health checks for drives you're keeping: a full surface read and SMART's extended self-test, which write nothing.  Purge through firmware sanitize, where the drive and bridge allow it.  Wipe + Load.  Certificate revocation per bay.  A Learn page on how drives work, how they fail, and how each kind gets wiped. |
+| **Built** | The read-only bay, the networked fleet with kernel-held scope, the wipe with full read-back, the HPA and DCO check, the SMART diff and grade, signed records, `proof.zip`, `zverify`.  The wall, with the time left on each wipe and a pill for each finding (`REALLOC 27`, `HITEMP 55C`).  A drive's history on its bay page when it comes back, and a certificate that prints from there.  First hardware wipe 2026-10-26.  Wipe + Load is built and tested on files, and hasn't yet loaded a real drive. |
+| **Next** | Health checks for drives you're keeping: a full surface read and SMART's extended self-test, which write nothing.  Purge through firmware sanitize, where the drive and bridge allow it.  Certificate revocation per bay.  A Learn page on how drives work, how they fail, and how each kind gets wiped. |
 | **For institutions** | Sign-in through your identity provider, with control set per host and visibility org-wide: each dock host belongs to the group allowed to run its bays (a Keycloak group, a Globus group, whatever your IdP carries), while anyone signed in can watch the whole wall and look up any serial's history.  Custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for drives that can't be wiped.  Designed in the spec, not built yet: today, anyone who can reach the page can start a wipe, so keep it on a network where that's fine. |
 
 ## Try it without hardware
@@ -97,7 +99,7 @@ The signature on a record checks with plain `ssh-keygen -Y verify`, with none of
 - [docs/operating.md](docs/operating.md): day to day.  Adding and retiring bays, checking scope, holding a bay.
 - [docs/spec.md](docs/spec.md): what it is, the decisions and why, the hardware lessons, the record format, the phases.
 
-Go, no cgo.  A dock host needs Linux with systemd and udev, `smartmontools`, `hdparm` and `util-linux`.  The hub runs as a container.
+Go, no cgo.  A dock host needs Linux with systemd and udev, `smartmontools`, `hdparm` and `util-linux`.  A bay with `load` also needs `gdisk` and `exfatprogs`.  The hub runs as a container.
 
 ## Contributing
 

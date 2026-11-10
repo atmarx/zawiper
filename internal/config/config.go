@@ -26,6 +26,10 @@ const BaysDir = "/etc/zawiper/bays"
 // Caps a bay can have (spec §8).  None means the bay only reads.
 var knownCaps = map[string]bool{"wipe": true, "load": true, "sas": true}
 
+// nvmeBridges are smartctl's -d names for the USB-NVMe bridges it can talk
+// through.
+var nvmeBridges = map[string]bool{"sntjmicron": true, "sntasmedia": true, "sntrealtek": true}
+
 var (
 	// A bay name ends up in a unit instance, a /dev/zawiper/ node, a path
 	// under /run and /var/lib, and a certificate CN.  Keep it plain.
@@ -47,9 +51,15 @@ type Bay struct {
 	// USBLUN narrows usb_port to one slot of a dock that shows each slot
 	// as a LUN of one USB device ("0", "1").  "" takes the whole port.
 	USBLUN    string
-	SmartType string // smartctl -d: "sat" or "scsi"
+	SmartType string // smartctl -d: "sat", "scsi", or a USB-NVMe bridge's
 	Caps      []string
-	Path      string // the file it came from
+	// WarnLabels are volume labels that get the same warning as a backup
+	// drive on this bay's confirm, in any case.
+	WarnLabels []string
+	// TempCeiling lowers the job's temperature ceiling on this bay, in °C.
+	// Zero leaves it to the drive.
+	TempCeiling int
+	Path        string // the file it came from
 }
 
 // Can says whether the bay has a capability.
@@ -121,10 +131,23 @@ func ParseBay(path string, r io.Reader) (*Bay, error) {
 				// caps = "wipe" or caps = "wipe, load"
 				b.Caps = strings.FieldsFunc(v.s, func(r rune) bool { return r == ',' || r == ' ' })
 			}
+		case "warn_labels":
+			b.WarnLabels = v.list
+			if !v.isList {
+				b.WarnLabels = []string{v.s}
+			}
+		case "temp_ceiling":
+			var s string
+			if s, err = str(path, k, v); err == nil {
+				b.TempCeiling, err = strconv.Atoi(s)
+				if err != nil || b.TempCeiling < 30 || b.TempCeiling > 90 {
+					err = fmt.Errorf("%s: temp_ceiling %q isn't a temperature from 30 to 90 °C", path, s)
+				}
+			}
 		case "port":
 			return nil, fmt.Errorf("%s: `port` is the Phase 1 key.  Rename it `usb_port`, give the bay a name, and keep one file per bay in %s/<name>.toml", path, BaysDir)
 		default:
-			return nil, fmt.Errorf("%s: unknown key %q (keys: name, usb_port, usb_lun, sas_path, smart_type, caps)", path, k)
+			return nil, fmt.Errorf("%s: unknown key %q (keys: name, usb_port, usb_lun, sas_path, smart_type, caps, warn_labels, temp_ceiling)", path, k)
 		}
 		if err != nil {
 			return nil, err
@@ -169,8 +192,14 @@ func (b *Bay) check() error {
 			b.SmartType = "scsi"
 		}
 	}
-	if b.SmartType != "sat" && b.SmartType != "scsi" {
-		return fmt.Errorf("%s: smart_type %q: use \"sat\" (USB-SATA bridges, SATA drives) or \"scsi\" (SAS)", p, b.SmartType)
+	switch {
+	case b.SmartType == "sat", b.SmartType == "scsi":
+	case nvmeBridges[b.SmartType]:
+		if b.USBPort == "" {
+			return fmt.Errorf("%s: smart_type %q is for a USB-NVMe bridge, and this bay isn't on a USB port", p, b.SmartType)
+		}
+	default:
+		return fmt.Errorf("%s: smart_type %q: use \"sat\" (USB-SATA bridges, SATA drives), \"scsi\" (SAS), or \"sntjmicron\", \"sntasmedia\" or \"sntrealtek\" (USB-NVMe bridges)", p, b.SmartType)
 	}
 	seen := map[string]bool{}
 	for _, c := range b.Caps {

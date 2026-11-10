@@ -205,6 +205,10 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 		return s
 	}
 
+	if n := info.NVMeHidden(); n > 0 {
+		refuse("This NVMe drive has %s the host can't see, unallocated or in another namespace.  A wipe wouldn't reach it, so it couldn't count as Clear.  Put the whole capacity in one namespace with `nvme-cli` in a machine with an M.2 slot, and re-read.", records.Size(n))
+	}
+
 	if c, ok := src.(capacity); ok {
 		o.step("Checking for hidden sectors (hdparm)")
 		drv.Capacity = c.Capacity(ctx, d, info.Protocol)
@@ -245,6 +249,9 @@ func Read(ctx context.Context, src Source, devs []Device, o ReadOpts) model.Snap
 		if p.Backup == "" {
 			p.Backup = backupBySignature(p)
 		}
+		if w, ok := src.(labelWarner); ok && p.Backup == "" {
+			p.Backup = w.WarnLabel(p.Label)
+		}
 	}
 	drv.Table = t
 	return s
@@ -259,6 +266,12 @@ func binary(n int64) string {
 		i++
 	}
 	return fmt.Sprintf("%d %s", n, units[i])
+}
+
+// labelWarner is a Source with labels its bay was told to warn about.
+// Optional, so fakes needn't.
+type labelWarner interface {
+	WarnLabel(label string) string
 }
 
 // Cheap backup tells that need no mount.  The peek adds restic and PBS.

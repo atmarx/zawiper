@@ -82,3 +82,17 @@ func TestWrite(t *testing.T) {
 		t.Errorf("bays: %q", b)
 	}
 }
+
+// A udev symlink is relative to /dev, and the units name /dev/zawiper/<bay>.
+// A module rename once sent every rule to /dev/github.com/.
+func TestSymlinksAreWhereTheUnitsLook(t *testing.T) {
+	out := rules([]*config.Bay{{Name: "b1", USBPort: "10-1"}})
+	for _, f := range strings.Fields(out) {
+		if l, ok := strings.CutPrefix(strings.TrimSuffix(f, ","), `SYMLINK+="`); ok && !strings.HasPrefix(l, "zawiper/b1") {
+			t.Errorf("symlink %s isn't under /dev/zawiper", l)
+		}
+	}
+	if !strings.Contains(out, `SYMLINK+="zawiper/b1"`) {
+		t.Errorf("no disk symlink:\n%s", out)
+	}
+}

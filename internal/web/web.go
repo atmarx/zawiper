@@ -27,6 +27,7 @@ import (
 
 	"github.com/atmarx/zawiper/internal/hub"
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/proto"
 	"github.com/atmarx/zawiper/internal/records"
 	"github.com/atmarx/zawiper/internal/sign"
@@ -47,6 +48,9 @@ type Server struct {
 	// Signer signs records as they arrive and is printed on certificates.
 	// Nil means unsigned: the certificate says so.
 	Signer *sign.Signer
+	// Library is the payload folder for Wipe + Load.  Nil hides Load: no
+	// button, no route, nothing on the page (spec §6.3).
+	Library *payload.Library
 
 	pages  map[string]*template.Template
 	events *events
@@ -94,22 +98,25 @@ func pillKind(f smart.Finding) string {
 }
 
 var funcs = template.FuncMap{
-	"pillkind": pillKind,
-	"size":     records.Size,
-	"surface":  records.Surface,
-	"legend":   records.SurfaceLegend,
-	"verdict":  records.WipeVerdict,
-	"pass":     records.Pass,
-	"slowline": records.SlowLine,
-	"when":     records.When,
-	"found":    records.FoundLine,
-	"bridge":   records.BridgeLine,
-	"rotation": records.Rotation,
-	"dir":      records.DirName,
-	"cells":    Cells,
-	"trace":    TraceRows,
-	"phase":    PhaseWords,
-	"rfc3339":  func(t time.Time) string { return t.Format(time.RFC3339Nano) },
+	"pillkind":   pillKind,
+	"size":       records.Size,
+	"surface":    records.Surface,
+	"legend":     records.SurfaceLegend,
+	"verdict":    records.WipeVerdict,
+	"loadednote": records.LoadedNote,
+	"heatline":   records.HeatLine,
+	"int64":      func(n int) int64 { return int64(n) },
+	"pass":       records.Pass,
+	"slowline":   records.SlowLine,
+	"when":       records.When,
+	"found":      records.FoundLine,
+	"bridge":     records.BridgeLine,
+	"rotation":   records.Rotation,
+	"dir":        records.DirName,
+	"cells":      Cells,
+	"trace":      TraceRows,
+	"phase":      PhaseWords,
+	"rfc3339":    func(t time.Time) string { return t.Format(time.RFC3339Nano) },
 	"commas": func(n any) string {
 		switch v := n.(type) {
 		case int:
@@ -171,6 +178,9 @@ func (s *Server) Handler() http.Handler {
 	// Four verbs and no more.  There is no abort, on purpose (spec §4.3).
 	for _, v := range []proto.Verb{proto.Reread, proto.Wipe, proto.Ack, proto.Eject} {
 		mux.HandleFunc("POST /api/bays/{host}/{name}/"+string(v), s.guard(s.act(v)))
+	}
+	if s.Library != nil {
+		mux.HandleFunc("POST /api/bays/{host}/{name}/"+string(proto.Load), s.guard(s.act(proto.Load)))
 	}
 	mux.HandleFunc("GET /drives", s.drives)
 	mux.HandleFunc("GET /drives/{serial}", s.drive)
@@ -241,6 +251,14 @@ type wipeBody struct {
 	Session time.Time `json:"session"`
 }
 
+// loadBody is a wipe's confirm, plus the set it showed and the hash of its list.
+type loadBody struct {
+	Serial  string    `json:"serial"`
+	Session time.Time `json:"session"`
+	Set     string    `json:"set"`
+	List    string    `json:"list"`
+}
+
 // act passes one verb down to one bay.  The bay decides; the hub and this
 // page only carry the request.
 func (s *Server) act(v proto.Verb) http.HandlerFunc {
@@ -260,6 +278,16 @@ func (s *Server) act(v proto.Verb) http.HandlerFunc {
 				return
 			}
 			req.Serial, req.Session = body.Serial, body.Session
+		}
+		if v == proto.Load {
+			var body loadBody
+			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&body); err != nil || body.Serial == "" || body.Session.IsZero() || body.Set == "" || body.List == "" {
+				http.Error(w, "A load names the drive, the insertion, the set and its list's hash, and nothing else.", http.StatusBadRequest)
+				return
+			}
+			req.Serial, req.Session, req.Set, req.List = body.Serial, body.Session, body.Set, body.List
 		}
 		if !b.Online {
 			http.Error(w, "This bay's link is down.", http.StatusConflict)
@@ -313,8 +341,7 @@ func (s *Server) bay(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	v := viewOf(b, time.Now())
-	v.Past = s.past(b)
+	v := s.bayPage(b)
 	var recent []records.Summary
 	if v.State == model.Empty {
 		recent = s.recent(5)
@@ -331,9 +358,7 @@ func (s *Server) bayFragment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	v := viewOf(b, time.Now())
-	v.Past = s.past(b)
-	s.render(w, "bay", "baybody", v)
+	s.render(w, "bay", "baybody", s.bayPage(b))
 }
 
 // apiFrame is the poll fallback: the same frame /events sends.
@@ -389,6 +414,8 @@ type bayView struct {
 	Skew bool
 	// Past is what the hub already knows about the drive in the bay.
 	Past *pastView
+	// Load is what Wipe + Load can offer.  Nil keeps it off the page.
+	Load *loadView
 }
 
 // pastView is a drive's history, for a bay page: has it been through
@@ -423,6 +450,63 @@ func (s *Server) past(b hub.Bay) *pastView {
 	return p
 }
 
+// bayPage is a bay, with everything its own page adds.
+func (s *Server) bayPage(b hub.Bay) bayView {
+	v := s.withLoad(viewOf(b, time.Now()))
+	v.Past = s.past(b)
+	return v
+}
+
+// loadView is the load's half of a bay page.
+type loadView struct {
+	Sets   []loadSet // the ones that fit, biggest first
+	WhyNot string    // why the button is off
+	Broken string    // the hub was given a payload folder, and it's unusable
+}
+
+// loadSet is one choice on the confirm.
+type loadSet struct {
+	Name        string
+	Description string
+	Size        int64
+	Files       int
+	Hash        string
+	Picked      bool
+}
+
+// withLoad fills in Wipe + Load for a bay's page.  It's only the page's
+// opinion: bayd re-reads the set and checks everything when the load arrives.
+func (s *Server) withLoad(v bayView) bayView {
+	if s.Library == nil || !slices.Contains(v.Caps, "load") {
+		return v
+	}
+	v.Load = &loadView{}
+	sets, err := s.Library.Sets()
+	if err != nil {
+		v.Load.Broken = err.Error()
+		v.Load.WhyNot = "The hub's payload folder is broken."
+		return v
+	}
+	if !v.Wipe {
+		v.Load.WhyNot = v.WhyNot
+		return v
+	}
+	size := v.Snap.Drive.Size
+	best := payload.Biggest(sets, size)
+	for i := range sets {
+		if !sets[i].Fits(size) {
+			continue
+		}
+		v.Load.Sets = append(v.Load.Sets, loadSet{Name: sets[i].Name, Description: sets[i].Description, Size: sets[i].Bytes(),
+			Files: len(sets[i].Files), Hash: sets[i].Hash(), Picked: i == best})
+	}
+	sort.SliceStable(v.Load.Sets, func(i, j int) bool { return v.Load.Sets[i].Size > v.Load.Sets[j].Size })
+	if len(v.Load.Sets) == 0 {
+		v.Load.WhyNot = "No set fits this drive."
+	}
+	return v
+}
+
 func viewOf(b hub.Bay, now time.Time) bayView {
 	v := bayView{Bay: b, State: stateOf(b), Sig: Sig(b)}
 	v.Path = "/bays/" + url.PathEscape(b.Host) + "/" + url.PathEscape(b.Name)
@@ -433,6 +517,9 @@ func viewOf(b hub.Bay, now time.Time) bayView {
 		switch v.State {
 		case model.Done:
 			v.Live.Phase = "Done.  Every block written, read back, and compared."
+			if j.Kind == "load" {
+				v.Live.Phase = "Done.  Overwritten, verified by sampling, loaded, and read back."
+			}
 		case model.Failed:
 			v.Live.Phase = "Failed during: " + PhaseWords(j.Phase)
 		case model.Interrupted:

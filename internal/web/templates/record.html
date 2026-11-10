@@ -65,9 +65,14 @@
     <dl class="facts">
       <dt>Started</dt><dd>{{when .Started}}</dd>
       <dt>Write pass</dt><dd>{{pass . false}}</dd>
+      {{if .Sampled}}
+      <dt>Verified by sampling</dt><dd>{{commas (int64 .Samples)}} blocks (IEEE 2883 §7.3), {{commas .Checked}} bytes matched</dd>
+      {{else}}
       <dt>Verify pass</dt><dd>{{pass . true}}</dd>
       <dt>Read back as written</dt><dd>{{commas .Checked}} of {{commas .Size}} bytes</dd>
+      {{end}}
       {{if .Bad}}<dt>Bad</dt><dd>{{commas .Bad}} bytes</dd>{{end}}
+      {{with heatline $.R}}<dt>Temperature</dt><dd>{{.}}</dd>{{end}}
       <dt>Slow blocks</dt><dd>{{slowline .}}</dd>
     </dl>
     <pre class="surface">{{surface .}}</pre>
@@ -106,7 +111,7 @@
   </section>
 
   <footer class="record-foot">
-    {{if not .Wrote}}Nothing was written to this drive.  {{end}}{{if .Wipe}}{{if .Wipe.OK}}Every byte of this drive was overwritten with a keystream{{if .Wipe.Key}}, then read back and compared.  The key is published in this record, so anyone can regenerate the stream and check the drive.{{else}} from a key that existed only in memory, then read back and compared.{{end}}  {{end}}{{end}}This record states what Za Wiper observed on the date shown, and nothing more.
+    {{if not .Wrote}}Nothing was written to this drive.  {{end}}{{if .Load}}{{loadednote .}}  {{else if .Wipe}}{{if .Wipe.OK}}Every byte of this drive was overwritten with a keystream{{if .Wipe.Key}}, then read back and compared.  The key is published in this record, so anyone can regenerate the stream and check the drive.{{else}} from a key that existed only in memory, then read back and compared.{{end}}  {{end}}{{end}}This record states what Za Wiper observed on the date shown, and nothing more.
   </footer>
 </article>
 
@@ -169,7 +174,7 @@
       <ul class="map-legend">
         {{range .Legend}}{{if .Count}}<li><i class="chip {{.Class}}"></i>{{.Label}} <span class="muted">{{commas .Count}}</span></li>{{end}}{{end}}
       </ul>
-      <p class="fine">One cell is {{size .R.Wipe.Block}}, written then read back, front of the drive at top left.  Write {{pass .R.Wipe false}}; verify {{pass .R.Wipe true}}.</p>
+      <p class="fine">One cell is {{size .R.Wipe.Block}}, {{if .R.Wipe.Sampled}}written, front of the drive at top left.  Write {{pass .R.Wipe false}}.{{else}}written then read back, front of the drive at top left.  Write {{pass .R.Wipe false}}; verify {{pass .R.Wipe true}}.{{end}}</p>
       <h3>Health before and after <span class="q-grade">{{template "badge" .R.Health.Grade}}{{template "pills" (pills .R.Health.Findings 0)}}</span></h3>
       {{template "cert-health" .}}
       {{with .R.Health.Notes}}<ul class="fine notes">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
@@ -197,6 +202,10 @@
   {{with .San.Whose}}<dt>Whose claim</dt><dd>{{.}}</dd>{{end}}
   <dt>Verification</dt><dd>{{.San.Verify}}</dd>
   <dt>Result</dt><dd>{{.San.Result}}</dd>
+  {{with .R.Load}}
+  <dt>Loaded with</dt><dd>{{.Set}}: {{commas (int64 .Files)}} files, {{size .Bytes}}</dd>
+  <dt>List's SHA-256</dt><dd class="mono">{{.Hash}}</dd>
+  {{end}}
   <dt>Completed</dt><dd>{{when .R.Wipe.Verified}}</dd>
   <dt>Tool</dt><dd>{{.R.Software}}</dd>
   <dt>Performed by</dt><dd>bay {{.R.Bay}} on {{.R.Host}}, unattended</dd>
@@ -232,6 +241,10 @@
 {{end}}
 {{if not .San.Level}}
 <p class="fine">There's no clean, whole-drive wipe here to check the drive against.  The record above says why.</p>
+{{else if .R.Load}}
+<p class="cmd-label">Mount the drive, then check its files and ballast with zverify:</p>
+<pre class="cmd">{{.Zverify}}</pre>
+<p class="fine">{{loadednote .R}}</p>
 {{else if .Check}}
 <p class="cmd-label">The drive, with zverify (two blocks in each ten-thousandth of the drive, as IEEE 2883 §7.3 suggests; <code>-full</code> for every byte):</p>
 <pre class="cmd">{{.Zverify}}</pre>

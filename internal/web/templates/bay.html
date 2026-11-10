@@ -38,7 +38,11 @@
 {{else if eq .State "DONE"}}
   {{template "drivehead" .}}
   <div class="ending ending-done">
+    {{if and .Snap.Job (eq .Snap.Job.Kind "load")}}
+    <p class="lede"><strong>Wiped, loaded and verified.</strong>  {{.Snap.Message}}</p>
+    {{else}}
     <p class="lede"><strong>Wiped and verified.</strong>  Every block was written, then read back and compared.</p>
+    {{end}}
     {{with .Live}}
     <dl class="headline">
       {{with $.Snap.Drive}}<div><dt>Health</dt><dd>{{template "badge" .Health.Grade}}{{template "pills" (pills .Health.Findings 3)}}</dd></div>{{end}}
@@ -179,14 +183,16 @@
 <div class="actions">
   <button type="button" class="btn" data-act="{{.API}}/reread" data-busy="Re-reading…">Re-read</button>
   <button type="button" class="btn btn-danger" data-open-confirm{{if not .Wipe}} disabled title="{{.WhyNot}}"{{end}}>Wipe</button>
-  <button type="button" class="btn btn-danger" disabled title="Phase 3">Wipe + Load</button>
+  {{with .Load}}<button type="button" class="btn btn-danger" data-open-confirm="load"{{if not .Sets}} disabled title="{{.WhyNot}}"{{end}}>Wipe + Load</button>{{end}}
 </div>
 {{if .Wipe}}
 <p class="muted small">Wipe asks once, showing what's on the drive.  After that it runs to the end, and nothing on this page can stop it.</p>
 {{template "confirm" .}}
+{{if .Load}}{{if .Load.Sets}}{{template "confirm-load" .}}{{end}}{{end}}
 {{else if .WhyNot}}
 <p class="muted small">Wipe is off: {{.WhyNot}}</p>
 {{end}}
+{{with .Load}}{{if .Broken}}<p class="alarm small" role="alert"><strong>The hub's payload folder is broken, so Wipe + Load is off.</strong>  {{.Broken}}</p>{{else if and $.Wipe .WhyNot}}<p class="muted small">Wipe + Load is off: {{.WhyNot}}</p>{{end}}{{end}}
 {{if and .Snap.RecordID .Snap.Drive}}<p><a href="/drives/{{dir .Snap.Drive.Serial}}/{{.Snap.RecordID}}">This read's record →</a></p>{{end}}
 {{end}}
 
@@ -207,6 +213,32 @@
     <div class="actions">
       <button class="btn" value="cancel" autofocus>Cancel</button>
       <button type="button" class="btn btn-danger btn-solid" data-confirm>{{if .LooksLikeBackup}}Erase this backup drive{{else}}Erase this drive{{end}}</button>
+    </div>
+  </form>
+</dialog>
+{{end}}
+{{end}}
+
+{{/* The load's confirm (spec §6.3): the wipe's, plus which set.  The biggest
+     that fits is already picked, and nothing starts until someone says so. */}}
+{{define "confirm-load"}}
+{{with .Snap.Drive}}
+<dialog class="confirm{{if .LooksLikeBackup}} confirm-warn{{end}}" data-load data-url="{{$.API}}/load" data-serial="{{.Serial}}" data-session="{{rfc3339 $.Snap.Session}}" aria-labelledby="confirm-load-title">
+  <form method="dialog">
+    <h2 id="confirm-load-title">Erase {{if .SMART}}{{.SMART.Model}}{{else}}this drive{{end}}, serial {{.Serial}}, {{size .Size}}, and load it?</h2>
+    <p class="confirm-serial">{{template "serial" .Serial}}</p>
+    <p class="found-line">Found on it: {{found .}}</p>
+    {{template "partlist" .}}
+    {{with .LooksLikeBackup}}<p class="why confirm-backup">⚠ This looks like a backup drive: {{.}}.  Make sure it's the one you mean.</p>{{end}}
+    <p><label>Load <select data-set>
+      {{range $.Load.Sets}}<option value="{{.Name}}" data-list="{{.Hash}}"{{if .Picked}} selected{{end}}>{{.Name}}: {{size .Size}}, {{commas (int64 .Files)}} files{{with .Description}} · {{.}}{{end}}</option>
+      {{end}}
+    </select></label></p>
+    <p class="small">Every sector is overwritten and checked by sampling, then the set goes on, the rest fills with ballast, and everything is read back.  What's on it now is gone for good.</p>
+    <p class="alarm small" data-confirm-error role="alert" hidden></p>
+    <div class="actions">
+      <button class="btn" value="cancel" autofocus>Cancel</button>
+      <button type="button" class="btn btn-danger btn-solid" data-confirm>Erase and load this drive</button>
     </div>
   </form>
 </dialog>

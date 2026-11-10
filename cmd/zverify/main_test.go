@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atmarx/zawiper/internal/model"
+	"github.com/atmarx/zawiper/internal/payload"
 	"github.com/atmarx/zawiper/internal/records"
 	"github.com/atmarx/zawiper/internal/sign"
 	"github.com/atmarx/zawiper/internal/smart"
@@ -280,5 +282,75 @@ func TestStratifiedSpans(t *testing.T) {
 		if n < 2 {
 			t.Fatalf("section %d has %d blocks", i, n)
 		}
+	}
+}
+
+// A loaded drive is checked through its filesystem.  What matters is telling a
+// used drive from a bad one.
+func TestLoadedDrive(t *testing.T) {
+	dir := t.TempDir()
+	const hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	set := payload.Set{Name: "s", Label: "L", Filesystem: "exfat", Files: []payload.File{{SHA256: hello, Size: 5, Path: "sub/hello"}}}
+	os.MkdirAll(filepath.Join(dir, "sub"), 0o755)
+	os.WriteFile(filepath.Join(dir, "sub", "hello"), []byte("hello"), 0o644)
+	os.WriteFile(filepath.Join(dir, payload.StampList), set.Text(), 0o644)
+	key, iv := bytes.Repeat([]byte{7}, 32), bytes.Repeat([]byte{9}, 16)
+	ballast := make([]byte, 1<<20)
+	wipe.Keystream(key, iv, 0, ballast)
+	os.WriteFile(filepath.Join(dir, payload.Ballast), ballast, 0o644)
+	rec := records.Record{Schema: 1, Kind: "wipe", Serial: "S1", ID: "x-wipe",
+		Wipe: &wipe.Result{Size: 1 << 30, Written: 1 << 30, Sampled: true, Samples: 2, Checked: 2 * wipe.SampleBlock,
+			Key: hex.EncodeToString(key), IV: hex.EncodeToString(iv)},
+		Load: &payload.Result{Set: "s", Hash: set.Hash(), Files: 1, Bytes: 5, Ballast: 1 << 20, VerifiedFiles: 5, VerifiedBallast: 1 << 20}}
+	js, _ := json.Marshal(rec)
+	path := filepath.Join(t.TempDir(), "record.json")
+	os.WriteFile(path, js, 0o644)
+	check := func() (int, string) {
+		var out, errw bytes.Buffer
+		code := run([]string{"-no-sig", path, dir}, &out, &errw)
+		return code, out.String() + errw.String()
+	}
+	code, out := check()
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	contains(t, out, "Stamp: matches the record", "Ballast: all 1,048,576 bytes match", "every file matches", "rests on the record")
+
+	// Someone added a file: fine.
+	os.WriteFile(filepath.Join(dir, "my notes"), []byte("x"), 0o644)
+	if code, out = check(); code != 0 || !strings.Contains(out, "someone using their drive") {
+		t.Errorf("added a file: exit %d: %s", code, out)
+	}
+	// Someone deleted the ballast: fine, that's what it's for.
+	os.Remove(filepath.Join(dir, payload.Ballast))
+	if code, out = check(); code != 0 || !strings.Contains(out, "what it's for") {
+		t.Errorf("deleted the ballast: exit %d: %s", code, out)
+	}
+	// A damaged ballast is not.
+	bad := append([]byte{}, ballast...)
+	bad[100] ^= 1
+	os.WriteFile(filepath.Join(dir, payload.Ballast), bad, 0o644)
+	if code, out = check(); code != 1 || !strings.Contains(out, "BAD") {
+		t.Errorf("damaged ballast: exit %d: %s", code, out)
+	}
+	os.WriteFile(filepath.Join(dir, payload.Ballast), ballast, 0o644)
+	// A file that doesn't match is the failure.
+	os.WriteFile(filepath.Join(dir, "sub", "hello"), []byte("hullo"), 0o644)
+	if code, out = check(); code != 1 || !strings.Contains(out, "BAD") {
+		t.Errorf("changed file: exit %d: %s", code, out)
+	}
+	os.WriteFile(filepath.Join(dir, "sub", "hello"), []byte("hello"), 0o644)
+	// A swapped list doesn't match the record.
+	other := set
+	other.Label = "M"
+	os.WriteFile(filepath.Join(dir, payload.StampList), other.Text(), 0o644)
+	if code, out = check(); code != 1 || !strings.Contains(out, "isn't the list") {
+		t.Errorf("swapped stamp: exit %d: %s", code, out)
+	}
+	os.WriteFile(filepath.Join(dir, payload.StampList), set.Text(), 0o644)
+	// Pointed at a device, it says to mount.
+	var o2, e2 bytes.Buffer
+	if code := run([]string{"-no-sig", path, path}, &o2, &e2); code != 2 || !strings.Contains(o2.String(), "Mount it read-only") {
+		t.Errorf("not a folder: exit %d: %s", code, o2.String())
 	}
 }
