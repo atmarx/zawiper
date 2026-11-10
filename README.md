@@ -15,7 +15,7 @@ Put a drive in a bay.  It reads the drive's identity, SMART health and whatever 
 ## What a record proves
 
 - **The level, the technique and the clause.**  Za Wiper targets NIST SP 800-88 Rev. 2, which defers to IEEE 2883-2022.  A hard drive overwritten with full read-back is **Clear** (IEEE 2883 §8.4.2.2).  The record says so, and names anything that stopped it from qualifying.
-- **Nothing was hidden.**  Before an ATA drive is overwritten, `hdparm` asks it about a host protected area or a device configuration overlay.  A drive keeping sectors back is refused until they're restored, because a wipe that can't reach them isn't Clear.
+- **Nothing was hidden.**  Before an ATA drive is overwritten, `hdparm` asks it about a host protected area or a device configuration overlay.  A drive keeping sectors back still gets wiped as far as it can be reached, but its record doesn't claim Clear, and says how many sectors it couldn't reach.
 - **Every byte went back out.**  The wipe writes a keystream, not zeros, and reads the whole drive back against it.  The key is published in the record once the wipe is done, so `zverify` can regenerate the stream and hold the drive up against it later: sampled the way IEEE 2883 §7.3 suggests, or every byte.
 - **The drive's own health,** before and after, graded PASS, PASS WITH NOTES or FAIL, with the evidence.
 - **That we wrote it.**  The hub signs each record as it arrives (SSH signature, Ed25519).  `ssh-keygen -Y verify` checks it against the hub's published key, with none of our code in the loop.  A record's `proof.zip` carries everything a buyer or an auditor needs to check it offline.
@@ -50,7 +50,7 @@ It runs fine as one PC with one USB dock.  The point is when it isn't: a bay in 
 
 ## Hard to point at the wrong disk
 
-That's the first goal, and it outranks everything else.  A bay refuses a drive the host is using, two drives on one port, a drive that won't say who it is, a drive whose size the bridge and the drive disagree on, and a drive with hidden sectors.  A wipe has to name the serial and the insertion its confirmation was drawn from, so a stale page or a swapped drive fails closed.  Backup media (a `backup-` label, a restic repository, a PBS datastore, an md, LVM or ZFS member) turns the card amber, and the button reads **Erase this backup drive**.
+That's the first goal, and it outranks everything else.  A bay refuses a drive the host is using, two drives on one port, a drive that won't say who it is, and a drive whose size the bridge and the drive disagree on.  Anything else gets wiped as well as it can be, even a failing drive or one hiding sectors.  The record says what the wipe was worth, and the perfect doesn't get to be the enemy of the good enough.  A wipe has to name the serial and the insertion its confirmation was drawn from, so a stale page or a swapped drive fails closed.  Backup media (a `backup-` label, a restic repository, a PBS datastore, an md, LVM or ZFS member) turns the card amber, and the button reads **Erase this backup drive**.
 
 ## And The Ark
 
@@ -62,8 +62,8 @@ Today the two meet by hand (`ark stamp` at a shell).  Wipe + Load in the bay is 
 
 | | |
 |---|---|
-| **Built** | The read-only bay, the networked fleet with kernel-held scope, the wipe with full read-back, the HPA and DCO check, the SMART diff and grade, signed records, `proof.zip`, `zverify`, the wall.  First hardware wipe 2026-10-26. |
-| **Next** | Purge through firmware sanitize, where the drive and bridge allow it.  Wipe + Load.  Certificate revocation per bay. |
+| **Built** | The read-only bay, the networked fleet with kernel-held scope, the wipe with full read-back, the HPA and DCO check, the SMART diff and grade, signed records, `proof.zip`, `zverify`.  The wall, with the time left on each wipe and a pill for each finding (`REALLOC 27`, `HITEMP 55C`).  A drive's history on its bay page when it comes back, and a certificate that prints from there.  First hardware wipe 2026-10-26. |
+| **Next** | Health checks for drives you're keeping: a full surface read and SMART's extended self-test, which write nothing.  Purge through firmware sanitize, where the drive and bridge allow it.  Wipe + Load.  Certificate revocation per bay.  A Learn page on how drives work, how they fail, and how each kind gets wiped. |
 | **For institutions** | Sign-in through your identity provider, with control set per host and visibility org-wide: each dock host belongs to the group allowed to run its bays (a Keycloak group, a Globus group, whatever your IdP carries), while anyone signed in can watch the whole wall and look up any serial's history.  Custody fields (asset tag, ticket, owner, disposition), hash-chained records, and destruction records for drives that can't be wiped.  Designed in the spec, not built yet: today, anyone who can reach the page can start a wipe, so keep it on a network where that's fine. |
 
 ## Try it without hardware
