@@ -141,7 +141,7 @@ func TestWipeDone(t *testing.T) {
 		}
 	}
 	// Built in staging, moved in whole: nothing of it stays behind.
-	if _, err := os.Stat(filepath.Join(r.b.Spool.Root+".tmp", "drives", serial, j.RecordID)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(r.b.Spool.Root, stageDir, "drives", serial, j.RecordID)); !os.IsNotExist(err) {
 		t.Errorf("staging still holds the record: %v", err)
 	}
 	if b, _ := os.ReadFile(r.src.File); bytes.Contains(b, []byte("old data")) {
@@ -385,6 +385,51 @@ func TestInterruptedStaleFile(t *testing.T) {
 				t.Errorf("after ack: %s", s.State)
 			}
 		})
+	}
+}
+
+// The link acknowledges with the drive gone, sandboxed: it can write the
+// spool and nothing else.  Its record and its note go in the spool, and the
+// next bayd clears the state file.
+func TestAckAbsentWritesOnlyTheSpool(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only directory this test leans on")
+	}
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	spool := filepath.Join(dir, "spool")
+	os.MkdirAll(state, 0o755)
+	os.MkdirAll(spool, 0o755)
+	stateFile := filepath.Join(state, "job.json")
+	js := `{"state":"RUNNING","job":{"kind":"wipe","phase":"write","serial":"9VPAX9NA","session":"2026-11-10T02:05:11Z","total":1052672}}`
+	os.WriteFile(stateFile, []byte(js), 0o644)
+	os.Chmod(state, 0o555) // what ProtectSystem=strict leaves the link
+	defer os.Chmod(state, 0o755)
+
+	link := &Bay{Name: "test", StatePath: stateFile, Spool: &Spool{Root: spool}}
+	if err := link.AckAbsent(); err != nil {
+		t.Fatal(err)
+	}
+	if recs, _ := filepath.Glob(filepath.Join(spool, "drives", "9VPAX9NA", "*-wipe", "record.json")); len(recs) != 1 {
+		t.Errorf("record not filed: %v", recs)
+	}
+	if _, err := os.Stat(stateFile); err != nil {
+		t.Fatalf("the state file went, so this test proves nothing: %v", err)
+	}
+	if !Acked(spool, &model.Job{Kind: "wipe", Serial: "9VPAX9NA", Session: time.Date(2026, 11, 10, 2, 5, 11, 0, time.UTC)}) {
+		t.Error("no note in the spool")
+	}
+
+	os.Chmod(state, 0o755)
+	b := &Bay{Name: "test", Src: &Dev{File: filepath.Join(dir, "none")}, StatePath: stateFile, Spool: &Spool{Root: spool}}
+	b.restore()
+	if s := b.Status(); s.State == model.Interrupted {
+		t.Errorf("bayd restored an acknowledged job: %s", s.State)
+	}
+	for _, p := range []string{stateFile, filepath.Join(spool, ackedName)} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s still there: %v", p, err)
+		}
 	}
 }
 

@@ -514,7 +514,50 @@ func (b *Bay) AckAbsent() error {
 			return fmt.Errorf("Couldn't file the record of the interrupted job (%v).  Nothing was cleared; acknowledge again once that's fixed.", err)
 		}
 	}
-	return b.clearState()
+	if b.Spool == nil {
+		return b.clearState()
+	}
+	if err := b.leaveAck(); err != nil {
+		return fmt.Errorf("Couldn't note the acknowledgement in the spool (%v).  Acknowledge again once that's fixed.", err)
+	}
+	return nil
+}
+
+// The link can't touch bayd's state file: its sandbox writes only to the
+// spool, and the state directory is root's.  So when it acknowledges a job
+// with the drive gone, it leaves a note in the spool naming that job.  The
+// link shows the bay empty while the note matches, and bayd clears the
+// state file, and the note, when it next starts.
+const ackedName = "acked.json"
+
+type ackNote struct{ Kind, Serial, Session, Started string }
+
+func noteOf(j *model.Job) ackNote {
+	at := func(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+	return ackNote{j.Kind, j.Serial, at(j.Session), at(j.Started)}
+}
+
+// Acked says the job was acknowledged with its drive gone.
+func Acked(spool string, j *model.Job) bool {
+	js, err := os.ReadFile(filepath.Join(spool, ackedName))
+	if err != nil || j == nil {
+		return false
+	}
+	var n ackNote
+	return json.Unmarshal(js, &n) == nil && n == noteOf(j)
+}
+
+func (b *Bay) leaveAck() error {
+	js, err := json.Marshal(noteOf(b.snap.Job))
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(b.Spool.Root, ackedName)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, js, 0o660); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // Eject flushes the drive and lets it go.  From DONE it clears the job too;
@@ -609,7 +652,11 @@ func (b *Bay) clearState() error {
 	if b.StatePath == "" {
 		return nil
 	}
-	for _, p := range []string{b.StatePath, b.beforePath()} {
+	paths := []string{b.StatePath, b.beforePath()}
+	if b.Spool != nil {
+		paths = append(paths, filepath.Join(b.Spool.Root, ackedName)) // last: the note stands until the state is gone
+	}
+	for _, p := range paths {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -635,6 +682,12 @@ func (b *Bay) restore() {
 	if err != nil {
 		jf = model.JobFile{State: model.Interrupted, Job: model.Job{Kind: "wipe",
 			Evidence: fmt.Sprintf("The job's state file couldn't be read (%v), so I can't say what was running.", err)}}
+	}
+	if b.Spool != nil && Acked(b.Spool.Root, &jf.Job) {
+		if err := b.clearState(); err != nil {
+			log.Printf("state: the link acknowledged %s's job, but its state can't be cleared: %v", jf.Job.Serial, err)
+		}
+		return
 	}
 	switch jf.State {
 	case model.Running:

@@ -244,11 +244,16 @@ func signature(devs []Device) string {
 // Spool is where finished records wait for the link to ship them.  The link
 // uploads any record folder holding a record.json, and a records.Store
 // writes its files in no particular order, so each record is built in a
-// staging store beside the spool (Root + ".tmp", the same filesystem) and
-// renamed in whole.  drive.json stays in staging: the hub rebuilds its own.
+// staging store inside the spool (spool/.stage, outside drives/, which is
+// all the link reads) and renamed in whole.  Inside, not beside: the link
+// files records too, when a job is acknowledged with the drive gone, and
+// its sandbox can write only to the spool.  drive.json stays in staging:
+// the hub rebuilds its own.
 type Spool struct {
 	Root string // /var/lib/zawiper/<bay>/spool
 }
+
+const stageDir = ".stage"
 
 func (s *Spool) SaveInspect(r *records.Record, smartJSON, smartText []byte) error {
 	return s.file(r, func(st *records.Store) error { return st.SaveInspect(r, smartJSON, smartText) })
@@ -263,7 +268,7 @@ func (s *Spool) SaveInterrupted(r *records.Record, raw map[string][]byte) error 
 }
 
 func (s *Spool) file(r *records.Record, save func(*records.Store) error) error {
-	stage := &records.Store{Root: s.Root + ".tmp"}
+	stage := &records.Store{Root: filepath.Join(s.Root, stageDir)}
 	if err := save(stage); err != nil {
 		return err
 	}

@@ -253,8 +253,10 @@ func TestInterruptedFromStateFile(t *testing.T) {
 	if err != nil || s.State != model.Empty {
 		t.Fatalf("ack: %v %v", s, err)
 	}
-	if _, err := os.Stat(r.link.State); !os.IsNotExist(err) {
-		t.Error("the state file is still in place")
+	// The link's sandbox can't touch the state file; it leaves a note in
+	// the spool, and bayd clears the file when it next starts.
+	if _, err := os.Stat(filepath.Join(r.link.Spool, "acked.json")); err != nil {
+		t.Errorf("no acknowledgement in the spool: %v", err)
 	}
 	if recs, _ := filepath.Glob(filepath.Join(r.link.Spool, "drives", "9VPAX9NA", "*-wipe", "record.json")); len(recs) != 1 {
 		t.Errorf("the interrupted job's record isn't in the spool: %v", recs)
@@ -263,19 +265,21 @@ func TestInterruptedFromStateFile(t *testing.T) {
 
 	// A drive pulled after DONE: its record is already filed, so the ack
 	// just clears the wall.
-	writeJob(t, r.link.State, model.Done)
+	writeJobAt(t, r.link.State, model.Done, time.Now())
 	waitFor(t, "DONE", func() bool { return r.bay().Snap.State == model.Done })
 	if s, err := r.hub.Call(ctx, key, proto.Request{Verb: proto.Ack}); err != nil || s.State != model.Empty {
 		t.Errorf("ack of DONE without the drive: %v %v", s, err)
-	}
-	if _, err := os.Stat(r.link.State); !os.IsNotExist(err) {
-		t.Errorf("the DONE state file is still there: %v", err)
 	}
 }
 
 func writeJob(t *testing.T, path string, s model.State) {
 	t.Helper()
-	js, _ := json.Marshal(model.JobFile{State: s, Job: model.Job{Kind: "wipe", Phase: "write", Serial: "9VPAX9NA"}})
+	writeJobAt(t, path, s, time.Time{})
+}
+
+func writeJobAt(t *testing.T, path string, s model.State, session time.Time) {
+	t.Helper()
+	js, _ := json.Marshal(model.JobFile{State: s, Job: model.Job{Kind: "wipe", Phase: "write", Serial: "9VPAX9NA", Session: session}})
 	if err := os.WriteFile(path, js, 0o644); err != nil {
 		t.Fatal(err)
 	}

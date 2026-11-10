@@ -64,6 +64,9 @@ func (l *Link) idle() model.Snapshot {
 		s.Message = fmt.Sprintf("The job state file can't be read, so this bay can't say how its last job ended: %v", err)
 		return s
 	}
+	if bay.Acked(l.Spool, &jf.Job) {
+		return s // acknowledged with the drive gone; bayd clears the file when it next starts
+	}
 	switch jf.State {
 	case model.Running, model.Interrupted:
 		s.State = model.Interrupted
