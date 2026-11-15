@@ -33,7 +33,10 @@ steps:
       CGO_ENABLED: "0"
     commands:
       - go vet ./...
-      - go test ./...
+      # The bay tests log every state change, which buries a failure past
+      # the end of what a CI log view shows.  On a failure, print it again
+      # without the timestamped log lines.
+      - "go test ./... >/tmp/test.log 2>&1 || { grep -v '^20[0-9][0-9]/[0-9][0-9]/[0-9][0-9] ' /tmp/test.log; exit 1; }"
 
   build-hub:
     image: docker:cli
