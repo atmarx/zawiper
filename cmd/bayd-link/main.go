@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/atmarx/zawiper/internal/config"
 	"github.com/atmarx/zawiper/internal/link"
 )
 
@@ -32,7 +33,7 @@ func main() {
 	socket := flag.String("socket", "", "the disk side's socket (default /run/zawiper/<bay>/bayd.sock)")
 	state := flag.String("state", "", "the job state file (default /var/lib/zawiper/<bay>/job.json)")
 	spool := flag.String("spool", "", "finished records waiting for the hub (default /var/lib/zawiper/<bay>/spool)")
-	caps := flag.String("caps", "wipe", "what this bay can do, comma-separated: wipe, load, sas")
+	caps := flag.String("caps", "", "what this bay can do, comma-separated: wipe, load, sas (default the caps in the bay's config, as bayd reads them)")
 	payloads := flag.String("payload-socket", "", "where the disk side asks for payload bytes (default /run/zawiper-link/<bay>/payload.sock)")
 	payloadHub := flag.String("payload-hub", "", "the hub's payload port (default the hub's host, port 8462)")
 	flag.Parse()
@@ -46,6 +47,16 @@ func main() {
 	orDefault(state, "/var/lib/zawiper/%s/job.json", *bay)
 	orDefault(spool, "/var/lib/zawiper/%s/spool", *bay)
 	orDefault(payloads, "/run/zawiper-link/%s/payload.sock", *bay)
+	capList := splitCaps(*caps)
+	if *caps == "" {
+		// The same file bayd reads, so the hub offers what the disk side
+		// will actually do.  A bay with no caps there only reads.
+		cfg, err := config.LoadBay(config.BayPath(*bay))
+		if err != nil {
+			log.Fatalf("config: %v (or say -caps)", err)
+		}
+		capList = cfg.Caps
+	}
 	if *payloadHub == "" {
 		h, _, err := net.SplitHostPort(*hub)
 		if err != nil {
@@ -69,11 +80,12 @@ func main() {
 	l := &link.Link{
 		Bay: name, Host: host, Hub: *hub, TLS: tc,
 		Socket: *socket, State: *state, Spool: *spool,
-		Caps: splitCaps(*caps), Version: fmt.Sprintf("%s (%s)", version, commit),
+		Caps: capList, Version: fmt.Sprintf("%s (%s)", version, commit),
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Printf("bayd-link %s for bay/%s/%s, hub %s", version, host, name, *hub)
+	log.Printf("caps: %s", strings.Join(capList, ","))
 	if slices.Contains(l.Caps, "load") {
 		p := &link.PayloadProxy{Hub: *payloadHub, TLS: tc, Socket: *payloads}
 		go func() {
