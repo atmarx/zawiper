@@ -411,7 +411,7 @@ func (b *Bay) blockDone(j *job, pass string, i int, c wipe.Cell) {
 		if len(*rates) != len(j.cells) {
 			*rates = make([]uint16, len(j.cells))
 		}
-		(*rates)[i] = uint16(min(live.MBps+0.5, 65535))
+		(*rates)[i] = rateOf(live.MBps)
 	}
 	eta(j, live, size)
 	live.Map = string(j.cells)
@@ -847,4 +847,12 @@ func writeAtomic(path string, b []byte) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// rateOf is a block's MB/s as the job keeps it.  0 means not measured, and
+// the wall's trace leaves a gap for it, so a measured block reads at least
+// 1: a drive crawling through a bad patch should dip, not vanish.  A short
+// last block that took a slow sync is the same case, smaller.
+func rateOf(mbps float64) uint16 {
+	return uint16(max(1, min(mbps+0.5, 65535)))
 }

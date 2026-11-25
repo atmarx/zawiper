@@ -156,7 +156,10 @@ func TestPauseShowsOnTheJobAndStaysOutOfTheTimings(t *testing.T) {
 	if seen.Job == nil || !seen.Job.Paused || seen.Job.ResumeC != smart.CeilingSpinning-coolMargin || seen.State != model.Running {
 		t.Fatalf("not paused: %+v", seen.Job)
 	}
-	time.Sleep(150 * time.Millisecond) // long against a block of a tmp file
+	// Hold the pause long against a block of a tmp file, even on a busy CI
+	// host, where one took 0.143 s (2026-11-15).
+	const hold = 600 * time.Millisecond
+	time.Sleep(hold)
 	th.mu.Lock()
 	th.temps = []int{40}
 	th.reads = 0
@@ -167,7 +170,7 @@ func TestPauseShowsOnTheJobAndStaysOutOfTheTimings(t *testing.T) {
 	}
 	rec := heatRecord(t, r, end)
 	for i, c := range rec.Wipe.Cells {
-		if c.Write > 0.1 {
+		if c.Write > (hold / 2).Seconds() {
 			t.Errorf("block %d's write took %.3f s: the pause landed in the timing", i, c.Write)
 		}
 	}

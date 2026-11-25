@@ -463,3 +463,15 @@ func TestEject(t *testing.T) {
 		t.Errorf("after eject from DONE: %s", s.State)
 	}
 }
+
+func TestAMeasuredBlockIsNeverZero(t *testing.T) {
+	// 4 KiB in 10 ms is 0.4 MB/s, which rounded to 0 and read as unmeasured.
+	for _, c := range []struct {
+		mbps float64
+		want uint16
+	}{{0.4, 1}, {0, 1}, {1.4, 1}, {1.5, 2}, {88.2, 88}, {1e9, 65535}} {
+		if got := rateOf(c.mbps); got != c.want {
+			t.Errorf("rateOf(%v) = %d, want %d", c.mbps, got, c.want)
+		}
+	}
+}
